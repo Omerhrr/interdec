@@ -101,3 +101,19 @@ body {
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- Mobile responsiveness ---------- */
+@media (max-width: 640px) {
+  .modal-overlay { padding: 20px 10px 16px; align-items: flex-start; }
+  .modal-head { padding: 14px 16px; }
+  .modal-body { padding: 16px; }
+  .toast { left: 10px; right: 10px; transform: none; text-align: center; white-space: normal; }
+
+  input.inp, select.inp, textarea.inp { font-size: 16px; } /* prevents iOS zoom */
+
+  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+
+@media (max-width: 860px) {
+  .two-col, .grid-2 { grid-template-columns: 1fr !important; }
+}

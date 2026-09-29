@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Vendors page - CRUD + PDF catalogue upload (also powers Catalogues view-only mode)
-const props = defineProps<{ readonly?: boolean }>();
+const props = defineProps<{ readonly?: boolean; catalogues?: boolean }>();
 const { vendors } = useData();
 const { CATEGORIES, COUNTRY_FLAGS, fmtSize, fmtDate } = useConstants();
 const notify = inject<(m: string, t?: string) => void>("notify")!;
@@ -123,9 +123,12 @@ const viewCatalog = async (i: number) => {
     <!-- Header -->
     <div class="head">
       <div>
-        <h2>{{ readonly ? "Catalogues" : "Vendors" }}</h2>
+        <h2>{{ readonly || catalogues ? "Catalogues" : "Vendors" }}</h2>
         <p v-if="readonly" style="font-size: 12px; color: #94a3b8; margin-top: 3px">
           Browse &amp; download vendor product catalogues
+        </p>
+        <p v-else-if="catalogues" style="font-size: 12px; color: #94a3b8; margin-top: 3px">
+          Admin access: manage vendors, upload and organise PDF catalogues
         </p>
       </div>
       <button v-if="!readonly" class="btn btn-accent" @click="openNew">＋ New Vendor</button>

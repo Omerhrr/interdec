@@ -139,7 +139,7 @@ provide("navigate", navigate);
       @portal="goPortal"
       @nav="navigate($event)"
     >
-      <IfVendors readonly />
+      <IfVendors catalogues :readonly="user.platformRole !== 'admin'" />
     </IfShell>
 
     <!-- Toast -->

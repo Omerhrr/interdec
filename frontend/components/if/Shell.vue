@@ -7,7 +7,9 @@ const roleColors: Record<string, string> = { admin: "#ef4444", user: "#3b82f6", 
 const roleLabels: Record<string, string> = { admin: "Admin", user: "User", viewer: "Reports Viewer" };
 
 const role = computed(() =>
-  props.cataloguesMode ? "viewer" : props.user?.apps?.importflow?.role || "viewer"
+  props.cataloguesMode
+    ? (props.user?.platformRole === "admin" ? "admin" : "viewer")
+    : props.user?.apps?.importflow?.role || "viewer"
 );
 const isAdmin = computed(() => role.value === "admin" && !props.cataloguesMode);
 const isViewer = computed(() => role.value === "viewer");
@@ -25,12 +27,34 @@ const navItems = computed(() => {
 });
 
 const { logout } = useAuth();
+
+// Mobile drawer
+const mobileOpen = ref(false);
+const nav = (k: string) => {
+  mobileOpen.value = false;
+  emit("nav", k);
+};
 </script>
 
 <template>
   <div class="shell">
+    <!-- Mobile top bar -->
+    <div class="mtop">
+      <button class="burger" @click="mobileOpen = true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+        </svg>
+      </button>
+      <div class="mtop-title">
+        {{ cataloguesMode ? "Catalogues" : "ImportFlow" }}
+        <span class="mtop-sub">{{ cataloguesMode ? (user.platformRole === 'admin' ? 'Admin' : 'View-Only') : 'Cycle Manager' }}</span>
+      </div>
+      <UiNotificationBell />
+    </div>
+    <div v-if="mobileOpen" class="backdrop" @click="mobileOpen = false" />
+
     <!-- Sidebar -->
-    <aside class="side">
+    <aside class="side" :class="{ open: mobileOpen }">
       <div class="side-head">
         <div class="side-logo" :style="{ background: cataloguesMode ? 'linear-gradient(135deg,#10b981,#059669)' : 'linear-gradient(135deg,#3b82f6,#8b5cf6)' }">
           <svg v-if="cataloguesMode" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8">
@@ -46,14 +70,19 @@ const { logout } = useAuth();
             {{ cataloguesMode ? "Catalogues" : "ImportFlow" }}
           </div>
           <div style="font-size: 8.5px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 1px">
-            {{ cataloguesMode ? "View-Only" : "Cycle Manager" }}
+            {{ cataloguesMode ? (user.platformRole === 'admin' ? 'Admin Access' : 'View-Only') : 'Cycle Manager' }}
           </div>
         </div>
+        <button class="side-close" @click="mobileOpen = false">✕</button>
       </div>
 
       <button class="back-btn" @click="emit('portal')">
         <span style="font-size: 12px">←</span> Interdec Portal
       </button>
+
+      <div class="side-bell">
+        <UiNotificationBell />
+      </div>
 
       <nav class="side-nav">
         <button
@@ -61,7 +90,7 @@ const { logout } = useAuth();
           :key="item.k"
           class="nav-btn"
           :style="page === item.k ? { background: '#334155', color: '#fff' } : {}"
-          @click="emit('nav', item.k)"
+          @click="nav(item.k)"
         >
           <span style="font-size: 13px; width: 16px; text-align: center">{{ item.icon }}</span>
           {{ item.label }}
@@ -128,4 +157,32 @@ const { logout } = useAuth();
 }
 .logout-btn:hover { background: #334155; color: #fff; }
 .content { flex: 1; min-width: 0; }
+.side-bell { padding: 8px 12px 0; }
+.side-close { display: none; }
+
+/* Mobile top bar + drawer */
+.mtop { display: none; }
+.backdrop { display: none; }
+@media (max-width: 860px) {
+  .mtop {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+    background: linear-gradient(180deg, #1e293b, #0f172a); position: sticky; top: 0; z-index: 40;
+  }
+  .burger {
+    width: 36px; height: 36px; border-radius: 9px; border: 1px solid #334155; background: rgba(51,65,85,.5);
+    color: #cbd5e1; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .mtop-title { flex: 1; color: #fff; font-size: 14px; font-weight: 800; }
+  .mtop-sub { font-size: 8.5px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-left: 6px; }
+  .side {
+    position: fixed; left: 0; top: 0; bottom: 0; z-index: 60; transform: translateX(-100%);
+    transition: transform .25s ease; width: 240px;
+  }
+  .side.open { transform: none; box-shadow: 24px 0 60px rgba(0,0,0,.45); }
+  .backdrop { display: block; position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 50; }
+  .side-close {
+    display: block; margin-left: auto; background: none; border: none; color: #94a3b8;
+    font-size: 14px; cursor: pointer; padding: 2px 4px;
+  }
+}
 </style>

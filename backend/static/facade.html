@@ -16,6 +16,19 @@ input,select,textarea,button{font-family:inherit;}
 .chip{padding:7px 13px;border-radius:8px;font-size:12px;cursor:pointer;border:2px solid #DDE4EC;background:#fff;font-family:inherit;font-weight:500;}
 .chip.on{border-color:#4A8EC2;background:#EBF4FB;color:#4A8EC2;font-weight:700;}
 .chip-col{display:inline-flex;flex-direction:column;align-items:center;gap:3px;padding:8px 14px;}
+.fburger{display:none;position:fixed;top:12px;left:12px;z-index:99;width:40px;height:40px;border-radius:10px;border:1px solid rgba(255,255,255,0.18);background:#0B2B2B;color:#fff;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.25);}
+.fbackdrop{display:none;}
+@media (max-width:820px){
+  .fburger{display:flex;}
+  .fside{transform:translateX(-100%);transition:transform .25s ease;}
+  body.side-open .fside{transform:none;box-shadow:24px 0 60px rgba(0,0,0,.45);}
+  .fmain{margin-left:0!important;padding:72px 16px 24px!important;}
+  .fbackdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:90;}
+  body.side-open .fbackdrop{display:block;}
+  #root > div > div:last-child{flex-wrap:wrap;}
+  table{display:block;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .fmain .inp{font-size:16px;}
+}
 @media print{
   body > *:not(.pz){display:none!important}
   .pz{display:block!important;position:static!important;width:100%!important;margin:0!important;padding:0!important;overflow:visible!important;border-radius:0!important;box-shadow:none!important}
@@ -891,7 +904,7 @@ function buildProdReport(){
 function render(){
   var root=document.getElementById('root');root.innerHTML='';
   if(!S.user){root.appendChild(buildLogin());return;}
-  var main=dv({marginLeft:'220px',padding:'28px 36px',flex:'1',minWidth:'0',width:'calc(100% - 220px)',boxSizing:'border-box'},[]);
+  var main=dv({cls:'fmain',marginLeft:'220px',padding:'28px 36px',flex:'1',minWidth:'0',width:'calc(100% - 220px)',boxSizing:'border-box'},[]);
   if(S.view==='project'&&S.ctxP)main.appendChild(buildProjectDetail());
   else if(S.view==='revb'&&S.ctxP&&S.ctxQ)main.appendChild(buildRevBuilder());
   else if(S.view==='revd'&&S.ctxP&&S.ctxQ&&S.ctxR)main.appendChild(buildRevDetail());
@@ -900,6 +913,10 @@ function render(){
   else if(S.view==='reports')main.appendChild(buildReports());
   else main.appendChild(buildDashboard());
   root.appendChild(dv({display:'flex',minHeight:'100vh',width:'100%',background:'#fff'},[buildSidebar(),main]));
+  // Mobile drawer controls (visible only under 820px via CSS)
+  var bg=dv({cls:'fbackdrop'});bg.addEventListener('click',function(){document.body.classList.remove('side-open');});root.appendChild(bg);
+  var burger=h('button',{cls:'fburger',title:'Menu'},[]);burger.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>';
+  burger.addEventListener('click',function(){document.body.classList.toggle('side-open');});root.appendChild(burger);
 }
 function platformUserToFacade(pu){
   var role=(pu.apps&&pu.apps.facade&&pu.apps.facade.role)||((pu.platformRole==='admin')?'admin':'sales');
@@ -981,7 +998,7 @@ function buildSidebar(){
     return h('button',{style:{display:'flex',alignItems:'center',gap:'10px',width:'100%',padding:'10px 14px',borderRadius:'9px',border:'none',cursor:'pointer',marginBottom:'2px',background:active?'rgba(255,255,255,0.13)':'transparent',color:active?'#fff':'rgba(255,255,255,0.5)',fontWeight:active?'700':'400',fontSize:'13px',textAlign:'left',fontFamily:'inherit'},onClick:function(){S.view=n.id;S.ctxP=null;S.ctxQ=null;S.ctxR=null;render();}},[ICONS[n.icon],' ',n.label]);
   });
   var nb=btn('+ New Project',function(){openProjForm(null);},'#4A8EC2');nb.style.width='100%';
-  return dv({width:'220px',background:'#0B2B2B',display:'flex',flexDirection:'column',minHeight:'100vh',position:'fixed',left:'0',top:'0',bottom:'0',zIndex:'100'},[
+  return dv({cls:'fside',width:'220px',background:'#0B2B2B',display:'flex',flexDirection:'column',minHeight:'100vh',position:'fixed',left:'0',top:'0',bottom:'0',zIndex:'100'},[
     dv({padding:'16px 20px 16px'},[
       (function(){
         // Embedded in the portal: show a back button above the brand (never overlapping it)

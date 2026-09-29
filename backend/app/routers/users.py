@@ -53,8 +53,14 @@ def create_user(
         active=True,
     )
     db.add(u)
+    from ..activity import log_action, notify_users
+    log_action(db, admin, "user.created", f"Created user {u.name} ({u.email})", "👤")
     db.commit()
     db.refresh(u)
+    db.add(models.Notification(id=uuid.uuid4().hex[:12], user_id=u.id,
+                               message=f"Welcome to Interdec Platform, {u.name}! Your account is ready.",
+                               kind="success", icon="👋", ts=int(__import__('time').time() * 1000)))
+    db.commit()
     return UserOut.model_validate(u)
 
 
@@ -115,5 +121,7 @@ def delete_user(
     if u.id == admin.id:
         raise HTTPException(400, "You cannot delete your own account.")
     db.delete(u)
+    from ..activity import log_action
+    log_action(db, admin, "user.deleted", f"Deleted user {u.name} ({u.email})", "🗑")
     db.commit()
     return {"ok": True}

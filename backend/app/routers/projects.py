@@ -34,6 +34,8 @@ def create_project(
     import time
     p = models.Project(id=uuid.uuid4().hex[:12], **body.model_dump(), created=int(time.time() * 1000))
     db.add(p)
+    from ..activity import log_action
+    log_action(db, user, "project.created", f"Created project {p.name}", "📋")
     db.commit()
     db.refresh(p)
     return _out(p)
@@ -51,6 +53,8 @@ def update_project(
         raise HTTPException(404, "Project not found")
     for k, val in body.model_dump(exclude_none=True).items():
         setattr(p, k, val)
+    from ..activity import log_action
+    log_action(db, user, "project.updated", f"Updated project {p.name}", "✏️")
     db.commit()
     db.refresh(p)
     return _out(p)
@@ -67,5 +71,7 @@ def delete_project(
         raise HTTPException(404, "Project not found")
     db.query(models.Shipment).filter(models.Shipment.project_id == project_id).update({"project_id": None})
     db.delete(p)
+    from ..activity import log_action
+    log_action(db, user, "project.deleted", f"Deleted project {p.name}", "🗑")
     db.commit()
     return {"ok": True}

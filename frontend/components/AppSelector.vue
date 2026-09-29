@@ -3,6 +3,7 @@
 const props = defineProps<{ user: any }>();
 const emit = defineEmits<{ (e: "open", app: string): void; (e: "admin"): void }>();
 
+const showPwd = ref(false);
 const roleLabels: Record<string, string> = { admin: "Admin", user: "User", viewer: "Reports Viewer", sales: "Sales" };
 const roleColors: Record<string, string> = { admin: "#8b5cf6", user: "#3b82f6", viewer: "#64748b", sales: "#f59e0b" };
 
@@ -28,13 +29,21 @@ const has = (app: string) => !!props.user?.apps?.[app]?.access;
             <div class="sel-sub">UNIFIED ACCESS PORTAL</div>
           </div>
         </div>
-        <div class="sel-user">
-          <div class="avatar" :style="{ background: (roleColors[user.platformRole === 'admin' ? 'admin' : 'user'] || '#3b82f6') + '20', color: roleColors[user.platformRole === 'admin' ? 'admin' : 'user'] }">
-            {{ user.avatar || user.name.slice(0, 2).toUpperCase() }}
-          </div>
-          <div>
-            <div class="sel-name">{{ user.name }}</div>
-            <div class="sel-role">{{ user.platformRole === "admin" ? "Platform Admin" : user.email }}</div>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <UiNotificationBell />
+          <button class="pwd-btn" title="Change password" @click="showPwd = true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </button>
+          <div class="sel-user">
+            <div class="avatar" :style="{ background: (roleColors[user.platformRole === 'admin' ? 'admin' : 'user'] || '#3b82f6') + '20', color: roleColors[user.platformRole === 'admin' ? 'admin' : 'user'] }">
+              {{ user.avatar || user.name.slice(0, 2).toUpperCase() }}
+            </div>
+            <div>
+              <div class="sel-name">{{ user.name }}</div>
+              <div class="sel-role">{{ user.platformRole === "admin" ? "Platform Admin" : user.email }}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -75,7 +84,10 @@ const has = (app: string) => !!props.user?.apps?.[app]?.access;
           </div>
           <div class="app-name">Catalogues</div>
           <div class="app-desc">Browse &amp; download vendor product catalogues</div>
-          <div class="app-access" style="color: #10b981">View Only</div>
+          <div
+            class="app-access"
+            :style="{ color: user.platformRole === 'admin' ? '#8b5cf6' : '#10b981' }"
+          >{{ user.platformRole === "admin" ? "Access: Admin" : "View Only" }}</div>
         </button>
       </div>
 
@@ -92,6 +104,8 @@ const has = (app: string) => !!props.user?.apps?.[app]?.access;
 
       <p class="sel-foot">© {{ new Date().getFullYear() }} Interdec Group · All Rights Reserved</p>
     </div>
+
+    <ChangePasswordModal v-if="showPwd" @close="showPwd = false" />
   </div>
 </template>
 
@@ -108,6 +122,11 @@ const has = (app: string) => !!props.user?.apps?.[app]?.access;
 .sel-title { font-size: 20px; font-weight: 800; color: #0f172a; }
 .sel-sub { font-size: 9px; font-weight: 700; color: #94a3b8; letter-spacing: 2.5px; margin-top: 2px; }
 .sel-user { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid #e2e8f0; padding: 8px 14px; border-radius: 11px; }
+.pwd-btn {
+  width: 36px; height: 36px; border-radius: 10px; border: 1.5px solid #e2e8f0; background: #fff;
+  color: #475569; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s;
+}
+.pwd-btn:hover { border-color: #c4b5fd; color: #7c3aed; }
 .avatar {
   width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 800;

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // Dashboard - company cards, active/closed stats, active pipeline (mirrors original)
 const emit = defineEmits<{ (e: "navigate", p: string, d?: string | null, id?: string | null): void }>();
-const { shipments, vendorName, shipperName } = useData();
+const { shipments, vendorName, shipperName, activity, loadActivity, timeAgo } = useData();
 const { user } = useAuth();
+onMounted(() => loadActivity(10));
 const { COMPANIES, STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, COUNTRY_FLAGS } = useConstants();
 
 const role = computed(() => user.value?.apps?.importflow?.role || "viewer");
@@ -114,6 +115,19 @@ const newShipment = ref(false);
       <div v-if="!pipeline.length" class="empty">🎉 All shipments completed. No active pipeline</div>
     </div>
 
+    <!-- Recent Activity -->
+    <h3 class="pipe-title" style="margin-top: 26px">Recent Activity</h3>
+    <div class="act-list">
+      <div v-for="a in activity" :key="a.id" class="act-row">
+        <span class="act-ic">{{ a.icon }}</span>
+        <div style="flex: 1; min-width: 0">
+          <div class="act-detail">{{ a.detail }}</div>
+          <div class="act-meta">{{ a.userName }} · {{ timeAgo(a.ts) }}</div>
+        </div>
+      </div>
+      <div v-if="!activity.length" class="empty">No activity recorded yet</div>
+    </div>
+
     <IfNewShipmentModal v-if="newShipment" @close="newShipment = false" />
   </div>
 </template>
@@ -153,4 +167,12 @@ h2 { font-size: 20px; font-weight: 800; }
 .pipe-meta { font-size: 11px; color: #94a3b8; }
 .pipe-val { font-size: 13.5px; font-weight: 700; margin-top: 4px; }
 .empty { text-align: center; padding: 34px; color: #94a3b8; font-size: 13px; background: #fff; border-radius: 11px; border: 1px dashed #e2e8f0; }
+.act-list { display: grid; gap: 8px; }
+.act-row {
+  display: flex; align-items: flex-start; gap: 11px; padding: 12px 16px;
+  background: #fff; border: 1px solid #e8eef5; border-radius: 11px;
+}
+.act-ic { font-size: 15px; line-height: 1.4; }
+.act-detail { font-size: 12.6px; color: #334155; font-weight: 600; line-height: 1.45; }
+.act-meta { font-size: 10.5px; color: #94a3b8; font-weight: 600; margin-top: 2px; }
 </style>

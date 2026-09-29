@@ -27,10 +27,10 @@ export const PAYMENT_TERMS = ["Before Shipment", "After Shipment"];
 
 export const SHIP_METHODS = ["FCL", "LCL", "Air D2D"];
 
-export const CURRENCIES = ["USD","EUR","GBP","JPY","CNY","ILS","AED"];
+export const CURRENCIES = ["USD","EUR","GBP","JPY","CNY","ILS","AED","NGN"];
 
 export const DEFAULT_RATES: Record<string, number> = {
-  USD: 1, EUR: 1.08, GBP: 1.27, JPY: 0.0067, CNY: 0.14, ILS: 0.27, AED: 0.27,
+  USD: 1, EUR: 1.08, GBP: 1.27, JPY: 0.0067, CNY: 0.14, ILS: 0.27, AED: 0.27, NGN: 0.00065,
 };
 
 export const COUNTRY_FLAGS: Record<string, string> = {

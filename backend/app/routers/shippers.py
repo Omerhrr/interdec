@@ -41,6 +41,8 @@ def create_shipper(
     import time
     s = models.Shipper(id=uuid.uuid4().hex[:12], **body.model_dump(), created=int(time.time() * 1000))
     db.add(s)
+    from ..activity import log_action
+    log_action(db, user, "shipper.created", f"Created shipper {s.name}", "🚢")
     db.commit()
     db.refresh(s)
     return _out(s)
@@ -58,6 +60,8 @@ def update_shipper(
         raise HTTPException(404, "Shipper not found")
     for k, val in body.model_dump(exclude_none=True).items():
         setattr(s, k, val)
+    from ..activity import log_action
+    log_action(db, user, "shipper.updated", f"Updated shipper {s.name}", "✏️")
     db.commit()
     db.refresh(s)
     return _out(s)

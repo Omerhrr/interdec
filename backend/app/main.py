@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from .database import Base, engine
 from .seed import seed
-from .routers import auth_router, users, vendors, shippers, projects, shipments
+from .routers import auth_router, users, vendors, shippers, projects, shipments, activity
 
 Base.metadata.create_all(bind=engine)
 seed()
@@ -20,6 +20,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router.router)
+app.include_router(activity.router)
 app.include_router(users.router)
 app.include_router(vendors.router)
 app.include_router(shippers.router)

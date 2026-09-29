@@ -108,6 +108,10 @@ def create_shipment(
         updated=now,
     )
     db.add(s)
+    from ..activity import log_action, notify_users
+    log_action(db, user, "shipment.created", f"Created shipment {s.ref} ({body.description.strip()[:40]})", "📦")
+    notify_users(db, db.query(models.User).filter(models.User.active == True).all(),  # noqa: E712
+                 f"New shipment {s.ref} created by {user.name}", "info", "📦", exclude_user=user)
     db.commit()
     db.refresh(s)
     return _out(s)
@@ -151,6 +155,7 @@ def update_shipment(
     role = auth.importflow_role(user)
     can_edit = role in ("admin", "user")
     now = int(time.time() * 1000)
+    old_status = s.status
     dates = dict(s.dates or {})
     data = body.model_dump(exclude_none=True)
 
@@ -211,6 +216,17 @@ def update_shipment(
 
     s.dates = dates
     s.updated = now
+    from ..activity import log_action, notify_users
+    if s.status != old_status:
+        log_action(db, user, "shipment.status", f"{s.ref}: {old_status.replace('_', ' ').title()} to {s.status.replace('_', ' ').title()}", "🔄")
+        notify_users(db, db.query(models.User).filter(models.User.active == True).all(),  # noqa: E712
+                     f"Shipment {s.ref} is now {s.status.replace('_', ' ')}", "success", "🔄", exclude_user=user)
+    elif "vendorInvoice" in data:
+        log_action(db, user, "shipment.upload", f"{s.ref}: vendor invoice uploaded", "📄")
+    elif "packingList" in data:
+        log_action(db, user, "shipment.upload", f"{s.ref}: packing list uploaded", "📄")
+    elif "shipperInvoice" in data:
+        log_action(db, user, "shipment.upload", f"{s.ref}: shipper invoice uploaded", "📄")
     db.commit()
     db.refresh(s)
     return _out(s)
@@ -226,5 +242,7 @@ def delete_shipment(
     if not s:
         raise HTTPException(404, "Shipment not found")
     db.delete(s)
+    from ..activity import log_action
+    log_action(db, user, "shipment.deleted", f"Deleted shipment {s.ref}", "🗑")
     db.commit()
     return {"ok": True}

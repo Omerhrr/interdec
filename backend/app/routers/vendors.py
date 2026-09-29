@@ -99,6 +99,10 @@ def upload_catalog(
     for f in files:
         catalogs.append(f.model_dump())
     v.catalogs = catalogs
+    from ..activity import log_action, notify_users
+    log_action(db, user, "vendor.catalog_uploaded", f"Uploaded {len(files)} catalogue PDF(s) to {v.name}", "📄")
+    notify_users(db, db.query(models.User).filter(models.User.active == True).all(),  # noqa: E712
+                 f"New catalogue uploaded: {v.name} ({len(files)} file(s))", "success", "📄", exclude_user=user)
     db.commit()
     return _out(v)["catalogs"]
 
@@ -136,6 +140,8 @@ def create_vendor(
         created=int(time.time() * 1000),
     )
     db.add(v)
+    from ..activity import log_action
+    log_action(db, user, "vendor.created", f"Created vendor {v.name}", "🏗")
     db.commit()
     db.refresh(v)
     return _out(v)
@@ -153,6 +159,8 @@ def update_vendor(
         raise HTTPException(404, "Vendor not found")
     for k, val in body.model_dump(exclude_none=True).items():
         setattr(v, k, val)
+    from ..activity import log_action
+    log_action(db, user, "vendor.updated", f"Updated vendor {v.name}", "✏️")
     db.commit()
     db.refresh(v)
     return _out(v)
@@ -170,5 +178,7 @@ def delete_vendor(
     # detach from shipments
     db.query(models.Shipment).filter(models.Shipment.vendor_id == vendor_id).update({"vendor_id": None})
     db.delete(v)
+    from ..activity import log_action
+    log_action(db, user, "vendor.deleted", f"Deleted vendor {v.name}", "🗑")
     db.commit()
     return {"ok": True}

@@ -249,7 +249,7 @@ const appBadge = (u: any, key: string) => {
                 <input type="checkbox" :checked="form.apps.catalogues?.access" @change="setApp('catalogues', { access: ($event.target as HTMLInputElement).checked })" />
                 📂 Catalogues
               </label>
-              <span v-if="form.apps.catalogues?.access" style="font-size: 10.5px; color: #10b981; font-weight: 600">View-only, no role needed</span>
+              <span v-if="form.apps.catalogues?.access" style="font-size: 10.5px; color: #10b981; font-weight: 600">View-only (platform admins can manage)</span>
             </div>
           </div>
         </div>

@@ -88,3 +88,25 @@ class Shipment(Base):
     dates = Column(JSON, default=dict)  # {created,invoiceUploaded,packingReady,shipperSelected,shipped,shipperInvoiced,closed}
     created = Column(Integer, default=0)
     updated = Column(Integer, default=0)
+
+
+class ActivityLog(Base):
+    __tablename__ = "activity_log"
+    id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, default="")
+    user_name = Column(String, default="")
+    action = Column(String, default="")     # machine key, e.g. shipment.created
+    detail = Column(String, default="")     # human readable line
+    icon = Column(String, default="•")      # emoji shown in the feed
+    ts = Column(Integer, default=0)         # epoch ms
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, index=True)    # recipient
+    message = Column(String, default="")
+    kind = Column(String, default="info")   # info | success | warning
+    icon = Column(String, default="🔔")
+    read = Column(Boolean, default=False)
+    ts = Column(Integer, default=0)         # epoch ms
