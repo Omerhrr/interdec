@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Company logo chip — mirrors original `pn` component
+// Company logo chip - mirrors original `pn` component
 import { COMPANIES } from "~/composables/useConstants";
 const props = defineProps<{ id: string }>();
 const c = COMPANIES.find((x) => x.id === props.id);

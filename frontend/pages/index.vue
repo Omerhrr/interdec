@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Login page — exact replica of the original Interdec Platform sign-in
+// Login page - exact replica of the original Interdec Platform sign-in
 const { login, user } = useAuth();
 const email = ref("");
 const password = ref("");

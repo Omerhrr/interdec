@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Vendors page — CRUD + PDF catalog upload (also powers Catalogues view-only mode)
+// Vendors page - CRUD + PDF catalogue upload (also powers Catalogues view-only mode)
 const props = defineProps<{ readonly?: boolean }>();
 const { vendors } = useData();
 const { CATEGORIES, COUNTRY_FLAGS, fmtSize, fmtDate } = useConstants();
@@ -78,7 +78,7 @@ const remove = async (v: any) => {
   }
 };
 
-// ---- Catalogs ----
+// ---- Catalogues ----
 const openCatalogs = (v: any) => {
   catalogVendor.value = v;
 };
@@ -150,13 +150,13 @@ const viewCatalog = async (i: number) => {
           <div style="min-width: 0">
             <div class="v-top">
               <h3 class="v-name">{{ v.name }}</h3>
-              <span class="chip" style="background: #eff6ff; color: #1d4ed8">{{ v.category || "—" }}</span>
+              <span class="chip" style="background: #eff6ff; color: #1d4ed8">{{ v.category || "N/A" }}</span>
               <span class="chip" style="background: #f8fafc; color: #475569">
-                {{ COUNTRY_FLAGS[v.country] || "🌍" }} {{ v.country || "—" }}
+                {{ COUNTRY_FLAGS[v.country] || "🌍" }} {{ v.country || "N/A" }}
               </span>
             </div>
-            <div class="v-meta">👤 {{ v.contact || "—" }} · ✉️ {{ v.email || "—" }}</div>
-            <div class="v-meta">📞 {{ v.phone || "—" }}<template v-if="v.address"> · 📍 {{ v.address }}</template></div>
+            <div class="v-meta">👤 {{ v.contact || "N/A" }} · ✉️ {{ v.email || "N/A" }}</div>
+            <div class="v-meta">📞 {{ v.phone || "N/A" }}<template v-if="v.address"> · 📍 {{ v.address }}</template></div>
             <p v-if="v.notes" class="v-notes">"{{ v.notes }}"</p>
             <div class="v-cats">
               <button class="cat-pill" @click="openCatalogs(v)">
@@ -205,7 +205,7 @@ const viewCatalog = async (i: number) => {
     </UiAppModal>
 
     <!-- Catalogs modal -->
-    <UiAppModal :open="!!catalogVendor" :title="`Catalogs — ${catalogVendor?.name || ''}`" :width="480" @close="catalogVendor = null; pdfUrl = null">
+    <UiAppModal :open="!!catalogVendor" :title="`Catalogues: ${catalogVendor?.name || ''}`" :width="480" @close="catalogVendor = null; pdfUrl = null">
       <div style="display: grid; gap: 8px; margin-bottom: 12px">
         <div
           v-for="(c, i) in catalogVendor?.catalogs || []"

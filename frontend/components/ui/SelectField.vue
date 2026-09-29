@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Select dropdown field — mirrors original Kn component
+// Select dropdown field - mirrors original Kn component
 const props = defineProps<{
   label: string;
   options: (string | { value: string; label: string })[];

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Shippers page — CRUD (mirrors vendors structure, w/o catalogs)
+// Shippers page - CRUD (mirrors vendors structure, w/o catalogues)
 const { shippers } = useData();
 const { COUNTRY_FLAGS, fmtDate } = useConstants();
 const notify = inject<(m: string, t?: string) => void>("notify")!;
@@ -92,10 +92,10 @@ const remove = async (s: any) => {
           <div style="min-width: 0">
             <div class="s-top">
               <h3 class="s-name">{{ s.name }}</h3>
-              <span class="chip" style="background: #f0f9ff; color: #0369a1">{{ s.category || "—" }}</span>
-              <span class="chip" style="background: #f8fafc; color: #475569">{{ COUNTRY_FLAGS[s.country] || "🌍" }} {{ s.country || "—" }}</span>
+              <span class="chip" style="background: #f0f9ff; color: #0369a1">{{ s.category || "N/A" }}</span>
+              <span class="chip" style="background: #f8fafc; color: #475569">{{ COUNTRY_FLAGS[s.country] || "🌍" }} {{ s.country || "N/A" }}</span>
             </div>
-            <div class="s-meta">👤 {{ s.contact || "—" }} · ✉️ {{ s.email || "—" }} · 📞 {{ s.phone || "—" }}</div>
+            <div class="s-meta">👤 {{ s.contact || "N/A" }} · ✉️ {{ s.email || "N/A" }} · 📞 {{ s.phone || "N/A" }}</div>
             <p v-if="s.notes" class="s-notes">"{{ s.notes }}"</p>
             <div style="font-size: 10px; color: #cbd5e1; margin-top: 6px">Added {{ fmtDate(s.created) }}</div>
           </div>

@@ -1,4 +1,4 @@
-// Shared constants & helpers — mirrors the original app's constants
+// Shared constants & helpers - mirrors the original app's constants
 export const STATUS_LABELS: Record<string, string> = {
   order_placed: "Order Placed",
   under_production: "Under Production",
@@ -41,10 +41,10 @@ export const COUNTRY_FLAGS: Record<string, string> = {
 };
 
 export const fmtDate = (t?: number | null) =>
-  t ? new Date(t).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  t ? new Date(t).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "N/A";
 
 export const fmtSize = (t?: number | null) =>
-  !t ? "—" : t < 1024 ? t + " B" : t < 1048576 ? (t / 1024).toFixed(1) + " KB" : (t / 1048576).toFixed(1) + " MB";
+  !t ? "N/A" : t < 1024 ? t + " B" : t < 1048576 ? (t / 1024).toFixed(1) + " KB" : (t / 1048576).toFixed(1) + " MB";
 
 export const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 

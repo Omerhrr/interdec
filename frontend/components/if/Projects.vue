@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Projects page — list w/ filters, detail w/ shipments, CRUD
+// Projects page - list w/ filters, detail w/ shipments, CRUD
 const props = defineProps<{ detail?: string | null; detailId?: string | null }>();
 const emit = defineEmits<{ (e: "navigate", p: string, d?: string | null, id?: string | null): void }>();
 const { projects, shipments, company } = useData();
@@ -96,7 +96,7 @@ const detailShipments = computed(() =>
             <h2 style="font-size: 17px; font-weight: 800">{{ detailProject.name }}</h2>
             <span class="chip" :style="{ background: statusColor(detailProject.status) + '18', color: statusColor(detailProject.status) }">{{ detailProject.status }}</span>
           </div>
-          <div style="font-size: 12.5px; color: #64748b">Client: <strong>{{ detailProject.client || "—" }}</strong></div>
+          <div style="font-size: 12.5px; color: #64748b">Client: <strong>{{ detailProject.client || "N/A" }}</strong></div>
           <p v-if="detailProject.description" style="font-size: 12.5px; color: #94a3b8; margin-top: 4px; max-width: 560px">{{ detailProject.description }}</p>
           <div style="font-size: 10.5px; color: #cbd5e1; margin-top: 6px">Created {{ fmtDate(detailProject.created) }}</div>
         </div>
@@ -179,7 +179,7 @@ const detailShipments = computed(() =>
               <h3 style="font-size: 15px; font-weight: 700; margin: 0">{{ p.name }}</h3>
               <span class="chip" :style="{ background: statusColor(p.status) + '18', color: statusColor(p.status) }">{{ p.status }}</span>
             </div>
-            <div style="font-size: 12.5px; color: #64748b">Client: <strong>{{ p.client || "—" }}</strong></div>
+            <div style="font-size: 12.5px; color: #64748b">Client: <strong>{{ p.client || "N/A" }}</strong></div>
             <p v-if="p.description" style="font-size: 12px; color: #94a3b8; margin-top: 3px">{{ p.description }}</p>
             <div style="display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap">
               <span

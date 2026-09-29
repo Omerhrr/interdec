@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Upload dropzone — mirrors original _l component
+// Upload dropzone - mirrors original _l component
 const props = defineProps<{ label: string; multiple?: boolean; accept?: string }>();
 const emit = defineEmits<{ (e: "files", f: File[]): void }>();
 const drag = ref(false);

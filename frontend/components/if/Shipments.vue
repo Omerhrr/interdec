@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Shipments page — list + filters, detail w/ full lifecycle workflow
+// Shipments page - list + filters, detail w/ full lifecycle workflow
 const props = defineProps<{ detail?: string | null; detailId?: string | null }>();
 const emit = defineEmits<{ (e: "navigate", p: string, d?: string | null, id?: string | null): void }>();
 const { shipments, vendors, shippers, projects, vendorName, shipperName, projectName } = useData();
@@ -50,7 +50,7 @@ const uploadFile = async (kind: "vendorInvoice" | "packingList" | "shipperInvoic
     const body: any = { [kind]: { name: f.name, size: f.size, type: f.type, data: await fileToBase64(f), uploaded: Date.now() } };
     await request(`/api/shipments/${shipment.value.id}`, { method: "PUT", body });
     notify(
-      kind === "vendorInvoice" ? "Invoice uploaded — Production started"
+      kind === "vendorInvoice" ? "Invoice uploaded, production started"
       : kind === "packingList" ? "Packing list uploaded"
       : "Shipper invoice uploaded"
     );
@@ -256,7 +256,7 @@ const statusColor = (s: string) => (s === "Active" ? "#10b981" : s === "Complete
           <span style="font-size: 10.5px; color: #94a3b8; margin-left: 6px">Uploaded {{ fmtDate(shipment.dates?.packingReady) }}</span>
         </template>
         <UiUploadBox v-else-if="shipment.status === 'under_production' && canEdit" label="Upload Packing List" @files="(f: File[]) => uploadFile('packingList', f)" />
-        <div v-else style="color: #94a3b8; font-size: 12.5px">{{ stageIdx(shipment) < 1 ? "Upload vendor invoice first" : "—" }}</div>
+        <div v-else style="color: #94a3b8; font-size: 12.5px">{{ stageIdx(shipment) < 1 ? "Upload vendor invoice first" : "Done" }}</div>
       </div>
 
       <!-- 4. Ship Goods -->
@@ -315,7 +315,7 @@ const statusColor = (s: string) => (s === "Active" ? "#10b981" : s === "Complete
             >🚢 Mark as Shipped</button>
           </div>
         </template>
-        <div v-else style="color: #94a3b8; font-size: 12.5px">{{ shipment.shipperId ? "—" : "Assign a shipper first" }}</div>
+        <div v-else style="color: #94a3b8; font-size: 12.5px">{{ shipment.shipperId ? "Done" : "Assign a shipper first" }}</div>
       </div>
 
       <!-- 5. Shipper Invoice -->
@@ -329,7 +329,7 @@ const statusColor = (s: string) => (s === "Active" ? "#10b981" : s === "Complete
           <span style="font-size: 10.5px; color: #94a3b8; margin-left: 6px">{{ fmtDate(shipment.dates?.shipperInvoiced) }}</span>
         </template>
         <UiUploadBox v-else-if="shipment.status === 'in_transit' && canEdit" label="Upload Shipper Invoice" @files="(f: File[]) => uploadFile('shipperInvoice', f)" />
-        <div v-else style="color: #94a3b8; font-size: 12.5px">{{ stageIdx(shipment) < 2 ? "Ship goods first" : "—" }}</div>
+        <div v-else style="color: #94a3b8; font-size: 12.5px">{{ stageIdx(shipment) < 2 ? "Ship goods first" : "Done" }}</div>
       </div>
 
       <!-- 6. Confirm & Complete -->
@@ -339,7 +339,7 @@ const statusColor = (s: string) => (s === "Active" ? "#10b981" : s === "Complete
           Confirm &amp; Complete
         </h3>
         <div v-if="shipment.status === 'completed'" style="font-size: 13px; font-weight: 700; color: #10b981">
-          ✅ Cycle completed — {{ fmtDate(shipment.dates?.closed) }}
+          ✅ Cycle completed on {{ fmtDate(shipment.dates?.closed) }}
         </div>
         <template v-else-if="shipment.status === 'in_transit' && shipment.shipperInvoice && canEdit">
           <p style="font-size: 12.5px; color: #64748b; margin-bottom: 10px">
@@ -347,7 +347,7 @@ const statusColor = (s: string) => (s === "Active" ? "#10b981" : s === "Complete
           </p>
           <button class="btn btn-accent btn-lg" :disabled="busy" @click="confirmGoods">✅ Confirm Goods &amp; Complete</button>
         </template>
-        <div v-else style="color: #94a3b8; font-size: 12.5px">{{ shipment.shipperInvoice ? "—" : "Upload shipper invoice first" }}</div>
+        <div v-else style="color: #94a3b8; font-size: 12.5px">{{ shipment.shipperInvoice ? "Done" : "Upload shipper invoice first" }}</div>
       </div>
     </div>
 

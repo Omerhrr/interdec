@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// User Management — platform admin (mirrors original)
+// User Management - platform admin (mirrors original)
 const props = defineProps<{ users: any[] }>();
 const emit = defineEmits<{ (e: "back"): void; (e: "refresh"): void }>();
 const notify = inject<(m: string, t?: string) => void>("notify")!;
@@ -100,7 +100,7 @@ const toggleActive = async (u: any) => {
 
 const appBadge = (u: any, key: string) => {
   const a = u.apps?.[key];
-  if (!a?.access) return { label: "—", color: "#94a3b8" };
+  if (!a?.access) return { label: "None", color: "#94a3b8" };
   if (key === "catalogues") return { label: "View", color: "#10b981" };
   const role = a.role || "viewer";
   return { label: role === "admin" ? "Admin" : role === "user" ? "User" : role === "sales" ? "Sales" : "Viewer", color: ROLE_COLORS[role] || "#64748b" };
@@ -184,7 +184,7 @@ const appBadge = (u: any, key: string) => {
     </div>
 
     <!-- User form modal -->
-    <UiAppModal :open="showForm" :title="form.__new ? 'New User' : `Edit — ${form.name}`" :width="560" @close="showForm = false">
+    <UiAppModal :open="showForm" :title="form.__new ? 'New User' : `Edit: ${form.name}`" :width="560" @close="showForm = false">
       <div style="display: grid; gap: 12px">
         <div style="display: grid; grid-template-columns: 1fr 100px; gap: 12px">
           <div>
@@ -212,7 +212,7 @@ const appBadge = (u: any, key: string) => {
           <label class="lbl">Platform Role</label>
           <select v-model="form.platformRole" class="inp">
             <option value="user">User</option>
-            <option value="admin">Admin — can manage users</option>
+            <option value="admin">Admin (can manage users)</option>
           </select>
         </div>
 
@@ -249,7 +249,7 @@ const appBadge = (u: any, key: string) => {
                 <input type="checkbox" :checked="form.apps.catalogues?.access" @change="setApp('catalogues', { access: ($event.target as HTMLInputElement).checked })" />
                 📂 Catalogues
               </label>
-              <span v-if="form.apps.catalogues?.access" style="font-size: 10.5px; color: #10b981; font-weight: 600">View-only — no role needed</span>
+              <span v-if="form.apps.catalogues?.access" style="font-size: 10.5px; color: #10b981; font-weight: 600">View-only, no role needed</span>
             </div>
           </div>
         </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// App selector screen — mirrors the original portal card grid
+// App selector screen - mirrors the original portal card grid
 const props = defineProps<{ user: any }>();
 const emit = defineEmits<{ (e: "open", app: string): void; (e: "admin"): void }>();
 

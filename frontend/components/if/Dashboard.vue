@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Dashboard — company cards, active/closed stats, active pipeline (mirrors original)
+// Dashboard - company cards, active/closed stats, active pipeline (mirrors original)
 const emit = defineEmits<{ (e: "navigate", p: string, d?: string | null, id?: string | null): void }>();
 const { shipments, vendorName, shipperName } = useData();
 const { user } = useAuth();
@@ -111,7 +111,7 @@ const newShipment = ref(false);
           <div class="mono pipe-val">{{ s.currency }} {{ (s.value || 0).toLocaleString() }}</div>
         </div>
       </div>
-      <div v-if="!pipeline.length" class="empty">🎉 All shipments completed — no active pipeline</div>
+      <div v-if="!pipeline.length" class="empty">🎉 All shipments completed. No active pipeline</div>
     </div>
 
     <IfNewShipmentModal v-if="newShipment" @close="newShipment = false" />

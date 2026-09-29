@@ -1,4 +1,4 @@
-// API client — wraps $fetch with auth header + error handling
+// API client - wraps $fetch with auth header + error handling
 export const useApi = () => {
   const config = useRuntimeConfig();
   const token = useCookie<string | null>("interdec_token");

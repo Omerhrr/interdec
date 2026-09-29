@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// ImportFlow shell — dark sidebar w/ nav, user footer (mirrors original)
+// ImportFlow shell - dark sidebar w/ nav, user footer (mirrors original)
 const props = defineProps<{ user: any; cataloguesMode?: boolean; page?: string }>();
 const emit = defineEmits<{ (e: "portal"): void; (e: "nav", k: string): void }>();
 

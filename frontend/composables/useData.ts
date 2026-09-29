@@ -1,4 +1,4 @@
-// Central data store — vendors/shippers/projects/shipments (loaded from FastAPI)
+// Central data store - vendors/shippers/projects/shipments (loaded from FastAPI)
 export const useData = () => {
   const vendors = useState<any[]>("vendors", () => []);
   const shippers = useState<any[]>("shippers", () => []);
@@ -35,10 +35,10 @@ export const useData = () => {
     }
   };
 
-  const vendorName = (id?: string | null) => vendors.value.find((v) => v.id === id)?.name || "—";
-  const shipperName = (id?: string | null) => shippers.value.find((s) => s.id === id)?.name || "—";
+  const vendorName = (id?: string | null) => vendors.value.find((v) => v.id === id)?.name || "N/A";
+  const shipperName = (id?: string | null) => shippers.value.find((s) => s.id === id)?.name || "N/A";
   const projectName = (id?: string | null) =>
-    id ? projects.value.find((p) => p.id === id)?.name || "—" : "General Stock";
+    id ? projects.value.find((p) => p.id === id)?.name || "N/A" : "General Stock";
   const company = (id?: string | null) => COMPANIES.find((c) => c.id === id);
 
   return {

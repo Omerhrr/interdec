@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Platform shell — auth guard, app selector, app views (mirrors original WP() flow)
+// Platform shell - auth guard, app selector, app views (mirrors original WP() flow)
 const { user, fetchMe } = useAuth();
 const { loadAll, loadUsers, loaded } = useData();
 const ready = ref(false);
@@ -23,7 +23,7 @@ onMounted(async () => {
   ready.value = true;
 });
 
-// Facade SSO — push the logged-in platform user into the facade app on iframe load
+// Facade SSO - push the logged-in platform user into the facade app on iframe load
 const facadeFrame = ref<HTMLIFrameElement | null>(null);
 const pushFacadeSSO = () => {
   const u = user.value;
@@ -46,6 +46,13 @@ const pushFacadeSSO = () => {
     /* facade falls back to its own login screen */
   }
 };
+
+// Facade asks the shell to return to the portal (sidebar button)
+const onFacadeMsg = (e: MessageEvent) => {
+  if ((e.data as any)?.type === "idf-portal") goPortal();
+};
+onMounted(() => window.addEventListener("message", onFacadeMsg));
+onUnmounted(() => window.removeEventListener("message", onFacadeMsg));
 
 const goPortal = () => {
   view.value = null;
@@ -95,11 +102,6 @@ provide("navigate", navigate);
 
     <!-- Facade (iframe) -->
     <div v-else-if="view === 'facade'" style="height: 100vh; background: #f0eee9">
-      <button
-        class="btn btn-secondary btn-sm"
-        style="position: fixed; top: 12px; left: 12px; z-index: 50; box-shadow: 0 4px 14px rgba(0,0,0,.12)"
-        @click="goPortal"
-      >← Portal</button>
       <iframe
         ref="facadeFrame"
         src="/facade.html"

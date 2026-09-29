@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// New Shipment modal — mirrors the original creation form
+// New Shipment modal - mirrors the original creation form
 const emit = defineEmits<{ (e: "close"): void; (e: "created", id: string): void }>();
 const { projects, vendors } = useData();
 const { COMPANIES, CATEGORIES, CURRENCIES } = useConstants();
@@ -112,7 +112,7 @@ const save = async () => {
       <!-- Description -->
       <div>
         <label class="lbl" :style="form._err && !form.description?.trim() ? { color: '#ef4444' } : {}">Description *</label>
-        <input v-model="form.description" class="inp" placeholder="Glass Panels — Batch 1" @input="form._err = ''" />
+        <input v-model="form.description" class="inp" placeholder="Glass Panels, Batch 1" @input="form._err = ''" />
       </div>
 
       <!-- Production time -->

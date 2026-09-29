@@ -1,4 +1,4 @@
-// Auth state — token cookie + current user
+// Auth state - token cookie + current user
 export interface AppAccess { access: boolean; role?: string }
 export interface PlatformUser {
   id: string;

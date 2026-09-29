@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Reports page — 5 report types + exchange rates + HTML export (mirrors original)
+// Reports page - 5 report types + exchange rates + HTML export (mirrors original)
 const { shipments, vendors, shippers, projects, vendorName, shipperName, projectName } = useData();
 const notify = inject<(m: string, t?: string) => void>("notify")!;
 const { COMPANIES, STATUS_ORDER, STATUS_LABELS, STATUS_COLORS, DEFAULT_RATES, fmtDate } = useConstants();
@@ -15,7 +15,7 @@ const fmtUsd = (n: number) => `$ ${Math.round(n).toLocaleString()}`;
 const reportMeta: Record<string, { icon: string; title: string; desc: string; color: string }> = {
   status: { icon: "📊", title: "Shipments by Status", desc: "All shipments grouped by Order Placed, Under Production, In Transit, Completed", color: "#3b82f6" },
   project: { icon: "📋", title: "Shipments by Project", desc: "Shipment breakdown per project with total values", color: "#8b5cf6" },
-  company: { icon: "🏢", title: "Shipments by Company", desc: "Facade, Davinci, Doortec — shipments and total values", color: "#f59e0b" },
+  company: { icon: "🏢", title: "Shipments by Company", desc: "Facade, Davinci and Doortec: shipments and total values", color: "#f59e0b" },
   vendor: { icon: "🏭", title: "Shipments by Vendor", desc: "All shipments grouped by vendor with total order values", color: "#10b981" },
   shipper: { icon: "🚢", title: "Shipments by Shipper", desc: "Shipper usage and freight costs paid", color: "#06b6d4" },
 };
@@ -108,12 +108,12 @@ const buildHtml = (type: string) => {
         <p style="font-size:13px;color:#475569;margin:0 0 8px">${fmtUsd(totalUsd(list))} · ${list.length} shipments</p>
         <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">
         ${tableRow(["Ref", "Company", "Description", "Method", "ETA", "Value"], true)}
-        ${list.map((s) => tableRow([s.ref, COMPANIES.find((c) => c.id === s.companyId)?.name || "", s.description, s.shipMethod || "—", s.eta || "—", `${s.currency || "USD"} ${(s.value || 0).toLocaleString()}`])).join("")}
+        ${list.map((s) => tableRow([s.ref, COMPANIES.find((c) => c.id === s.companyId)?.name || "", s.description, s.shipMethod || "N/A", s.eta || "N/A", `${s.currency || "USD"} ${(s.value || 0).toLocaleString()}`])).join("")}
         </table>`;
     });
   }
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Interdec — ${titles[type]}</title></head>
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Interdec ${titles[type]}</title></head>
   <body style="font-family:'DM Sans',system-ui,sans-serif;color:#0f172a;max-width:900px;margin:0 auto;padding:40px 24px">
     <h1 style="font-size:22px;margin:0 0 4px">${reportMeta[type].icon} ${titles[type]}</h1>
     <p style="color:#94a3b8;font-size:12px;margin:0 0 12px">Interdec Platform · Generated ${date} · Values converted to USD</p>
@@ -332,8 +332,8 @@ const exportReport = (type: string) => {
                 <td class="mono" style="color: #3b82f6; font-weight: 700">{{ s.ref }}</td>
                 <td><UiCompanyChip :id="s.companyId" /></td>
                 <td>{{ s.description }}</td>
-                <td>{{ s.shipMethod || "—" }}</td>
-                <td>{{ s.eta || "—" }}</td>
+                <td>{{ s.shipMethod || "N/A" }}</td>
+                <td>{{ s.eta || "N/A" }}</td>
                 <td class="mono" style="font-weight: 700">{{ s.currency }} {{ (s.value || 0).toLocaleString() }}</td>
               </tr>
             </tbody>

@@ -1,6 +1,6 @@
 # Interdec Platform
 
-A full-stack CRM-style platform for managing projects, shipments, vendors and shippers — built to mirror the workflows of the Interdec operations team.
+A full-stack CRM-style platform for managing projects, shipments, vendors and shippers, built to mirror the workflows of the Interdec operations team.
 
 ## Tech Stack
 
@@ -76,10 +76,10 @@ Seeded on first startup:
 
 ## Features
 
-- **Dashboard** — KPI cards, shipment status breakdown, recent activity
-- **Projects** — create/track projects with milestones and document uploads
-- **Shipments** — full lifecycle tracking with status tracker, vendor/shipper assignment
-- **Vendors** — supplier directory with catalogues and contact details
-- **Shippers** — logistics partners with freight categories
-- **Reports** — status and performance reporting
-- **Users Admin** — role-based user management (admin only)
+- **Dashboard**: KPI cards, shipment status breakdown, recent activity
+- **Projects**: create/track projects with milestones and document uploads
+- **Shipments**: full lifecycle tracking with status tracker, vendor/shipper assignment
+- **Vendors**: supplier directory with catalogues and contact details
+- **Shippers**: logistics partners with freight categories
+- **Reports**: status and performance reporting
+- **Users Admin**: role-based user management (admin only)

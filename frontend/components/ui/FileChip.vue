@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// File chip — mirrors original Md component (file display w/ download)
+// File chip - mirrors original Md component (file display w/ download)
 const props = defineProps<{ file: any; color?: string; kind?: string; fileId?: string }>();
 const { fmtSize } = useConstants();
 const { request } = useApi();

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Status tracker — exact replica of the original lv() component
+// Status tracker - exact replica of the original lv() component
 const props = defineProps<{ status: string }>();
 const { STATUS_ORDER, STATUS_COLORS } = useConstants();
 const steps = [
