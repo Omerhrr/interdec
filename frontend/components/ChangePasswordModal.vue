@@ -28,6 +28,7 @@ const save = async () => {
   try {
     await request("/api/auth/change-password", {
       method: "POST",
+      keepAuthOn401: true,
       body: { currentPassword: cur.value, newPassword: next.value },
     });
     notify("Password changed successfully");

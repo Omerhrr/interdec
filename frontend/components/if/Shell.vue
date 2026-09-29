@@ -164,9 +164,14 @@ const nav = (k: string) => {
 .mtop { display: none; }
 .backdrop { display: none; }
 @media (max-width: 860px) {
+  /* stack the shell so the mobile top bar is a real top bar (not a stretched
+     flex item squeezed beside the content) */
+  .shell { flex-direction: column; }
+  .content { width: 100%; }
   .mtop {
     display: flex; align-items: center; gap: 10px; padding: 10px 14px;
     background: linear-gradient(180deg, #1e293b, #0f172a); position: sticky; top: 0; z-index: 40;
+    flex-shrink: 0; width: 100%;
   }
   .burger {
     width: 36px; height: 36px; border-radius: 9px; border: 1px solid #334155; background: rgba(51,65,85,.5);

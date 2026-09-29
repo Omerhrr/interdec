@@ -47,9 +47,12 @@ const pushFacadeSSO = () => {
   }
 };
 
-// Facade asks the shell to return to the portal (sidebar button)
+// Facade messages: return-to-portal button, plus the SSO handshake where an
+// embedded facade without a session asks for the signed-in platform user
 const onFacadeMsg = (e: MessageEvent) => {
-  if ((e.data as any)?.type === "idf-portal") goPortal();
+  const t = (e.data as any)?.type;
+  if (t === "idf-portal") goPortal();
+  else if (t === "idf-sso-request") pushFacadeSSO();
 };
 onMounted(() => window.addEventListener("message", onFacadeMsg));
 onUnmounted(() => window.removeEventListener("message", onFacadeMsg));

@@ -4,17 +4,22 @@ export const useApi = () => {
   const token = useCookie<string | null>("interdec_token");
 
   const request = async <T>(path: string, opts: any = {}): Promise<T> => {
-    const headers: Record<string, string> = { ...(opts.headers || {}) };
+    const { keepAuthOn401, ...rest } = opts;
+    const headers: Record<string, string> = { ...(rest.headers || {}) };
     if (token.value) headers.Authorization = `Bearer ${token.value}`;
     try {
       return await $fetch<T>(path, {
         baseURL: config.public.apiBase as string,
-        ...opts,
+        ...rest,
         headers,
       });
     } catch (e: any) {
       const msg = e?.data?.detail || e?.message || "Request failed";
-      if (e?.status === 401) {
+      // A 401 normally means the session expired, but endpoints like
+      // change-password return 401 for validation (wrong current password).
+      // Callers can pass keepAuthOn401 to handle the error inline instead
+      // of being logged out.
+      if (e?.status === 401 && !keepAuthOn401) {
         token.value = null;
         if (import.meta.client && !window.location.pathname.includes("__nuxt_error")) {
           window.location.href = "/";

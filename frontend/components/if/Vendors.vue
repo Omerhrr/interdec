@@ -281,4 +281,9 @@ h2 { font-size: 20px; font-weight: 800; }
 }
 .pdf-box { background: #fff; border-radius: 12px; width: 100%; max-width: 900px; overflow: hidden; display: flex; flex-direction: column; }
 .pdf-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid #f1f5f9; }
+/* Mobile: let the filter row wrap so the category select never overflows */
+@media (max-width: 640px) {
+  .filters { flex-wrap: wrap; }
+  .search-wrap { min-width: 100%; }
+}
 </style>

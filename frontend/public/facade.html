@@ -22,7 +22,7 @@ input,select,textarea,button{font-family:inherit;}
   .fburger{display:flex;}
   .fside{transform:translateX(-100%);transition:transform .25s ease;}
   body.side-open .fside{transform:none;box-shadow:24px 0 60px rgba(0,0,0,.45);}
-  .fmain{margin-left:0!important;padding:72px 16px 24px!important;}
+  .fmain{margin-left:0!important;padding:72px 16px 24px!important;width:100%!important;}
   .fbackdrop{display:none;position:fixed;inset:0;background:rgba(15,23,42,.5);z-index:90;}
   body.side-open .fbackdrop{display:block;}
   #root > div > div:last-child{flex-wrap:wrap;}
@@ -245,7 +245,15 @@ function h(tag,attrs,ch){
   if(ch)ch.forEach(function(c){if(c==null||c===false)return;e.appendChild(typeof c==='string'?document.createTextNode(c):c);});
   return e;
 }
-function dv(st,ch){return h('div',{style:st},ch);}
+function dv(st,ch){
+  // pass through the cls attribute (used by fmain/fside/fbackdrop responsive CSS)
+  var attrs={style:st};
+  if(st&&typeof st==='object'&&st.cls!==undefined){
+    var s=Object.assign({},st);delete s.cls;
+    attrs={style:s,cls:st.cls};
+  }
+  return h('div',attrs,ch);
+}
 function btn(txt,clk,bg,fg,ex){var s=Object.assign({background:bg||'#0B2B2B',color:fg||'#fff',padding:'10px 20px',borderRadius:'9px',border:'none',fontWeight:'700',fontSize:'13px',cursor:'pointer',fontFamily:'inherit',lineHeight:'1.4'},ex||{});return h('button',{style:s,onClick:clk},[txt]);}
 function inp(val,chg,ph,tp){var e=h('input',{cls:'inp',type:tp||'text',placeholder:ph||''});e.value=val||'';e.addEventListener('input',function(ev){chg(ev.target.value);});return e;}
 function numInp(val,chg,ph){
@@ -935,6 +943,12 @@ window.addEventListener('message',function(ev){
     if(!S.user){S.user=fu;S.view='dashboard';render();}
   }catch(e){}
 });
+// Handshake: when embedded in the portal without a session, ask the shell
+// for the signed-in platform user. Retries cover shell hydration timing.
+if(window.parent&&window.parent!==window.self&&!S.user){
+  var ssoAsk=function(){try{window.parent.postMessage({type:'idf-sso-request'},'*');}catch(e){}};
+  ssoAsk();setTimeout(ssoAsk,500);setTimeout(ssoAsk,1500);
+}
 function buildLogin(){
   var email='',pwd='',checking=false;
   var errDiv=dv({background:'#FEF2F2',color:'#DC2626',borderRadius:'7px',padding:'8px 12px',marginBottom:'12px',fontSize:'12px',fontWeight:'600',display:'none'},['Invalid email or password']);
