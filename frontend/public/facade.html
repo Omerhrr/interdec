@@ -901,10 +901,44 @@ function render(){
   else main.appendChild(buildDashboard());
   root.appendChild(dv({display:'flex',minHeight:'100vh',width:'100%',background:'#fff'},[buildSidebar(),main]));
 }
+function platformUserToFacade(pu){
+  var role=(pu.apps&&pu.apps.facade&&pu.apps.facade.role)||((pu.platformRole==='admin')?'admin':'sales');
+  if(role!=='admin')role='sales';
+  return {id:'pf_'+(pu.id||pu.email),name:pu.name||pu.email,email:pu.email,role:role,active:true,sso:true};
+}
+function ssoUpsert(fu){
+  var us=(lsGet('users')||USERS_DEF).filter(function(x){return x.id!==fu.id&&x.email!==fu.email;});
+  us.push(fu);sv('users',us);return fu;
+}
+// SSO: the portal signs the logged-in platform user straight into the app
+window.addEventListener('message',function(ev){
+  try{
+    var d=ev.data;if(!d||d.type!=='idf-sso'||!d.user)return;
+    var fu=ssoUpsert(platformUserToFacade(d.user));
+    if(!S.user){S.user=fu;S.view='dashboard';render();}
+  }catch(e){}
+});
 function buildLogin(){
-  var email='',pwd='';
+  var email='',pwd='',checking=false;
   var errDiv=dv({background:'#FEF2F2',color:'#DC2626',borderRadius:'7px',padding:'8px 12px',marginBottom:'12px',fontSize:'12px',fontWeight:'600',display:'none'},['Invalid email or password']);
-  function go(){var u=null;(S.users||[]).forEach(function(x){if(x.email===email&&x.password===pwd&&x.active)u=x;});if(u){S.user=u;S.view='dashboard';render();}else{errDiv.style.display='block';errDiv.style.animation='shake .4s ease';}}
+  function showErr(){errDiv.style.display='block';errDiv.style.animation='shake .4s ease';}
+  function go(){
+    if(checking)return;
+    var u=null;(S.users||[]).forEach(function(x){if(x.email===email&&x.password===pwd&&x.active)u=x;});
+    if(u){S.user=u;S.view='dashboard';render();return;}
+    // Fallback: validate against the Interdec Platform backend (same credentials as the portal)
+    checking=true;sb.disabled=true;sb.textContent='Signing in…';
+    fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:pwd})})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(res){
+        if(res&&res.user){
+          var fu=ssoUpsert(platformUserToFacade(res.user));
+          S.user=fu;S.view='dashboard';render();
+        }else{showErr();}
+      })
+      .catch(function(){showErr();})
+      .then(function(){checking=false;});
+  }
   var ei=inp(email,function(v){email=v;errDiv.style.display='none';},'you@company.com','email');
   var pi=inp(pwd,function(v){pwd=v;errDiv.style.display='none';},'••••••••','password');
   ei.addEventListener('keydown',function(e){if(e.key==='Enter')pi.focus();});
@@ -926,7 +960,7 @@ function buildLogin(){
       ]),
       dv({background:'#fff',borderRadius:'16px',padding:'28px 24px',boxShadow:'0 25px 60px rgba(0,0,0,0.3)'},[
         dv({fontSize:'16px',fontWeight:'700',color:'#0f172a',marginBottom:'4px'},['Sign In']),
-        dv({fontSize:'12.5px',color:'#94a3b8',marginBottom:'20px'},['Enter your credentials to continue']),
+        dv({fontSize:'12.5px',color:'#94a3b8',marginBottom:'20px'},['Use your Interdec Platform credentials']),
         errDiv,
         dv({display:'flex',flexDirection:'column',gap:'12px'},[
           dv({},[lbl1,ei]),

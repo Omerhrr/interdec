@@ -23,6 +23,30 @@ onMounted(async () => {
   ready.value = true;
 });
 
+// Facade SSO — push the logged-in platform user into the facade app on iframe load
+const facadeFrame = ref<HTMLIFrameElement | null>(null);
+const pushFacadeSSO = () => {
+  const u = user.value;
+  if (!u || view.value !== "facade") return;
+  try {
+    facadeFrame.value?.contentWindow?.postMessage(
+      {
+        type: "idf-sso",
+        user: {
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          platformRole: u.platformRole,
+          facadeRole: u.apps?.facade?.role,
+        },
+      },
+      window.location.origin
+    );
+  } catch {
+    /* facade falls back to its own login screen */
+  }
+};
+
 const goPortal = () => {
   view.value = null;
   page.value = "dashboard";
@@ -76,7 +100,13 @@ provide("navigate", navigate);
         style="position: fixed; top: 12px; left: 12px; z-index: 50; box-shadow: 0 4px 14px rgba(0,0,0,.12)"
         @click="goPortal"
       >← Portal</button>
-      <iframe src="/facade.html" style="width: 100%; height: 100%; border: none" title="Facade Pricing"></iframe>
+      <iframe
+        ref="facadeFrame"
+        src="/facade.html"
+        style="width: 100%; height: 100%; border: none"
+        title="Facade Pricing"
+        @load="pushFacadeSSO"
+      ></iframe>
     </div>
 
     <!-- User Management (admin) -->

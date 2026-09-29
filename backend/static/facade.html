@@ -22,7 +22,7 @@ input,select,textarea,button{font-family:inherit;}
   @page{margin:14mm;size:A4}
 }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"><\/script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -86,7 +86,7 @@ var GC_DEF={
   colours:[{id:'clear',label:'Clear',premium:0},{id:'grey',label:'Grey',premium:3500},{id:'lowe',label:'Low-E',premium:8000},{id:'frosted',label:'Frosted',premium:4500}]
 };
 var RATES_DEF={brandRates:{EUROTEC:3400,CORTIZO:3400,DEFAULT:3400},gasketRate:480,fabRate:7500,installRate:9500,subframeRate:7500,sealantRate:500};
-var SETTINGS_DEF={defaultMarkup:100,minMarkup:70,vatRate:7.5,validity:14,paymentTerms:'80% advance payment upon order confirmation. Balance of 20% payable upon agreed project milestones.',tcs:'1. Prices subject to change due to FX rate fluctuations.\\n2. Quote validity subject to material availability.\\n3. All works during normal business hours unless agreed otherwise.\\n4. Excludes structural engineering, civil works or scaffolding unless stated.\\n5. Title to goods remains with Interdec Facade until full payment received.'};
+var SETTINGS_DEF={defaultMarkup:100,minMarkup:70,vatRate:7.5,validity:14,paymentTerms:'80% advance payment upon order confirmation. Balance of 20% payable upon agreed project milestones.',tcs:'1. Prices subject to change due to FX rate fluctuations.\n2. Quote validity subject to material availability.\n3. All works during normal business hours unless agreed otherwise.\n4. Excludes structural engineering, civil works or scaffolding unless stated.\n5. Title to goods remains with Interdec Facade until full payment received.'};
 var USERS_DEF=[{id:'u1',name:'Admin User',email:'admin',password:'123',role:'admin',active:true},{id:'u2',name:'Sales Staff',email:'sales@interdec.com',password:'sales123',role:'sales',active:true}];
 var SP_DEF=[{id:'sp1',name:'Chidi Okafor',title:'Senior Sales Executive',phone:'+234 801 000 0001',email:'chidi@interdec.com',active:true},{id:'sp2',name:'Amaka Nwosu',title:'Sales Executive',phone:'+234 801 000 0002',email:'amaka@interdec.com',active:true}];
 
@@ -96,7 +96,7 @@ function validateFields(fields){var ok=true;fields.forEach(function(x){if(!x.val
 
 function today(){return new Date().toISOString().slice(0,10);}
 function addDays(n){var d=new Date();d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
-function fmt(n){return '\\u20a6'+Math.round(n||0).toLocaleString('en-NG');}
+function fmt(n){return '\u20a6'+Math.round(n||0).toLocaleString('en-NG');}
 function fmtN(n){return (n||0).toLocaleString('en-NG',{maximumFractionDigits:3});}
 function fmtD(s){return s?new Date(s).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}):'-';}
 function lsGet(k){try{var v=localStorage.getItem('idf8:'+k);return v?JSON.parse(v):null;}catch(e){return null;}}
@@ -324,7 +324,7 @@ function exportToExcel(proj,quote,rev){
   var LA=1,LB=2,LC=3,LD=4,LE=5,LF=6;
   var CARD_H=13,ISTART=4,NAVY='1F3864';
   // Sheet header rows 1-2
-  var projTitle=(proj.name||'')+(proj.client&&proj.client.name?' \\u2014 '+proj.client.name:'');
+  var projTitle=(proj.name||'')+(proj.client&&proj.client.name?' \u2014 '+proj.client.name:'');
   var subTitle=quote.number+' Rev.'+rev.rev+(sp?' | '+sp.name:'')+'   Date: '+(rev.createdAt||'')+'   Valid: '+(rev.validUntil||'');
   sc(1,LA,cs(projTitle,true,13));sm(1,LA,1,LF);
   sc(2,LA,cs(subTitle,false,10,'607080'));sm(2,LA,2,LF);
@@ -333,27 +333,27 @@ function exportToExcel(proj,quote,rev){
     var baseRow=ISTART+(i*CARD_H);
     var prod=null;PRODS.forEach(function(p){if(p.id===item.product)prod=p;});
     var isAcp=item.product==='acp';
-    var gDesc=isAcp?((S.acpPanels||ACP_DEF).filter(function(p){return p.id===item.acpPanelId;})[0]||{name:'\\u2014'}).name:glassLabel(item);
+    var gDesc=isAcp?((S.acpPanels||ACP_DEF).filter(function(p){return p.id===item.acpPanelId;})[0]||{name:'\u2014'}).name:glassLabel(item);
     var desc=item.compositeDesc||autoDesc(item);
-    var brand=(prod&&prod.label)||'\\u2014';
+    var brand=(prod&&prod.label)||'\u2014';
     var W=Math.round(item.width||item.length*1000||0);
     var H=Math.round(item.height||0);
     var sizeStr=item.elements&&item.elements.length>0?'Composite':W+' x '+H+'mm';
     var selling=Math.round((item.bom&&item.bom.total||0)*(1+mk/100));
     var total=selling*parseInt(item.qty||1);
-    sc(baseRow,LA,cs('Item '+(i+1)+(item.position?' \\u2014 '+item.position:''),true,11,'FFFFFF',NAVY));sm(baseRow,LA,baseRow,LF);
+    sc(baseRow,LA,cs('Item '+(i+1)+(item.position?' \u2014 '+item.position:''),true,11,'FFFFFF',NAVY));sm(baseRow,LA,baseRow,LF);
     var fields=[
-      ['Position',item.position||'\\u2014','s'],
+      ['Position',item.position||'\u2014','s'],
       ['Element Size',sizeStr,'s'],
       ['Description',desc,'s',true],
       ['System',brand,'s'],
       ['Profile Colour','To be determined','s'],
-      ['Sub-Frame',item.hasSubframe&&SUBFRAME_ELIGIBLE.indexOf(item.subTypeId)>=0?'Yes':'\\u2014','s'],
+      ['Sub-Frame',item.hasSubframe&&SUBFRAME_ELIGIBLE.indexOf(item.subTypeId)>=0?'Yes':'\u2014','s'],
       ['Glazing',gDesc,'s',true],
-      ['Mosquito Net',item.hasMosq&&MOSQ_ELIGIBLE.indexOf(item.subTypeId)>=0?'Yes':'\\u2014','s'],
+      ['Mosquito Net',item.hasMosq&&MOSQ_ELIGIBLE.indexOf(item.subTypeId)>=0?'Yes':'\u2014','s'],
       ['Unit Price',selling,'n','#,##0.00'],
       ['Qty',item.qty,'q'],
-      ['Total Price',total,'t','\\u20a6#,##0.00']
+      ['Total Price',total,'t','\u20a6#,##0.00']
     ];
     fields.forEach(function(f,fi){
       var r=baseRow+1+fi;
@@ -369,7 +369,7 @@ function exportToExcel(proj,quote,rev){
   // Summary table below item cards
   var sumStart=ISTART+(items.length*CARD_H)+1;
   sc(sumStart,LA,cs('SUMMARY',true,12,'FFFFFF',NAVY));sm(sumStart,LA,sumStart,LF);
-  [['DESCRIPTION','left'],['NO.','center'],['POSITION','center'],['QTY','center'],['RATE (\\u20a6)','right'],['AMOUNT (\\u20a6)','right']].forEach(function(h,ci){var cell=cs(h[0],true,11,'FFFFFF','2A4A6B',h[1]);bord(cell,'thin','thin','thin','thin');sc(sumStart+1,LA+ci,cell);});
+  [['DESCRIPTION','left'],['NO.','center'],['POSITION','center'],['QTY','center'],['RATE (\u20a6)','right'],['AMOUNT (\u20a6)','right']].forEach(function(h,ci){var cell=cs(h[0],true,11,'FFFFFF','2A4A6B',h[1]);bord(cell,'thin','thin','thin','thin');sc(sumStart+1,LA+ci,cell);});
   items.forEach(function(item,i){
     var desc=item.compositeDesc||autoDesc(item);
     var selling=Math.round((item.bom&&item.bom.total||0)*(1+mk/100));
@@ -386,7 +386,7 @@ function exportToExcel(proj,quote,rev){
   var TBG='E2EFDA',tStart=sumStart+2+items.length+1;
   var tRows=[['Sub-Total (excl. VAT)',c.sub,false],['VAT @ '+S.settings.vatRate+'%',c.vat,false]];
   if(rev.outsideLagos&&rev.logisticsCost>0)tRows.push(['Transport & Logistics'+(rev.logisticsLocation?' to '+rev.logisticsLocation:''),+rev.logisticsCost,false]);
-  tRows.push(['GRAND TOTAL',grandTotal,true,'\\u20a6#,##0.00']);
+  tRows.push(['GRAND TOTAL',grandTotal,true,'\u20a6#,##0.00']);
   tRows.forEach(function(tr,ri){var rr=tStart+ri;var isGT=tr[2];var bg=isGT?NAVY:TBG;var fg=isGT?'FFFFFF':null;sc(rr,LA,bord(cs(tr[0],isGT,11,fg,bg,'right'),null,null,'thin',null));sm(rr,LA,rr,LE);sc(rr,LF,bord(cn(tr[1],isGT,tr[3]||'#,##0.00',bg,'right'),'hair','hair','thin','thin'));});
   // Payment terms
   var PT=tStart+tRows.length+2;
@@ -396,7 +396,7 @@ function exportToExcel(proj,quote,rev){
   if(S.settings.tcs){
     var tcStart=PT+4;
     sc(tcStart-1,LA,cs('TERMS & CONDITIONS',true,11,'FFFFFF',NAVY));sm(tcStart-1,LA,tcStart-1,LF);
-    S.settings.tcs.split('\\n').filter(function(l){return l.trim();}).forEach(function(l,li){sc(tcStart+li,LA,cs(l,false,10,null,null,'left',true));sm(tcStart+li,LA,tcStart+li,LF);});
+    S.settings.tcs.split('\n').filter(function(l){return l.trim();}).forEach(function(l,li){sc(tcStart+li,LA,cs(l,false,10,null,null,'left',true));sm(tcStart+li,LA,tcStart+li,LF);});
   }
   // Build AOA
   var aoa=[];
@@ -412,7 +412,7 @@ function exportToExcel(proj,quote,rev){
 
   // ── BOM Details sheet ─────────────────────────────────────────────────────
   var BHD_BG='1F3864';
-  var bHdrs=['#','Pos.','Description','W (mm)','H (mm)','Area m\\u00b2','Profiles','Glass/Panel','Gasket','Sealant','Hardware','Sub-Frame','Mosq. Net','Fabrication','Installation','Total Cost','Selling'];
+  var bHdrs=['#','Pos.','Description','W (mm)','H (mm)','Area m\u00b2','Profiles','Glass/Panel','Gasket','Sealant','Hardware','Sub-Frame','Mosq. Net','Fabrication','Installation','Total Cost','Selling'];
   var bAoa=[bHdrs.map(function(h){return {v:h,t:'s',s:{font:{name:FONT,sz:11,bold:true,color:{rgb:'FFFFFF'}},fill:{patternType:'solid',fgColor:{rgb:BHD_BG}},alignment:{horizontal:'center'}}};})];
   c.items.forEach(function(item,i){
     var b=item.bom||{};
@@ -438,14 +438,14 @@ function exportToExcel(proj,quote,rev){
   });
   bAoa.push(totBRow);
   [['Total Cost',c.cost],['Markup '+mk+'%',c.mkAmt],['Sub-Total',c.sub],['VAT '+S.settings.vatRate+'%',c.vat]].forEach(function(r){
-    var row=new Array(17).fill(ce());row[14]=cs(r[0],true,11,null,totBg);row[15]=cn(r[1],true,'\\u20a6#,##0.00',totBg);bAoa.push(row);
+    var row=new Array(17).fill(ce());row[14]=cs(r[0],true,11,null,totBg);row[15]=cn(r[1],true,'\u20a6#,##0.00',totBg);bAoa.push(row);
   });
   if(rev.outsideLagos&&rev.logisticsCost>0){
-    var lr=new Array(17).fill(ce());lr[14]=cs('Logistics: '+(rev.logisticsLocation||''),false,11,null,totBg);lr[15]=cn(+rev.logisticsCost,true,'\\u20a6#,##0.00',totBg);bAoa.push(lr);
+    var lr=new Array(17).fill(ce());lr[14]=cs('Logistics: '+(rev.logisticsLocation||''),false,11,null,totBg);lr[15]=cn(+rev.logisticsCost,true,'\u20a6#,##0.00',totBg);bAoa.push(lr);
   }
   var gr=new Array(17).fill(ce());
   gr[14]={v:'GRAND TOTAL',t:'s',s:{font:{name:FONT,sz:12,bold:true,color:{rgb:'FFFFFF'}},fill:{patternType:'solid',fgColor:{rgb:BHD_BG}}}};
-  gr[15]={v:grandTotal,t:'n',z:'\\u20a6#,##0.00',s:{font:{name:FONT,sz:12,bold:true,color:{rgb:'FFD700'}},fill:{patternType:'solid',fgColor:{rgb:BHD_BG}}}};
+  gr[15]={v:grandTotal,t:'n',z:'\u20a6#,##0.00',s:{font:{name:FONT,sz:12,bold:true,color:{rgb:'FFD700'}},fill:{patternType:'solid',fgColor:{rgb:BHD_BG}}}};
   bAoa.push(gr);
   var wsB=XLSX.utils.aoa_to_sheet(bAoa);
   wsB['!cols']=[{wch:4},{wch:7},{wch:34},{wch:9},{wch:9},{wch:10},{wch:14},{wch:14},{wch:12},{wch:12},{wch:12},{wch:12},{wch:11},{wch:14},{wch:14},{wch:16},{wch:16}];
@@ -768,7 +768,7 @@ function buildSPReport(){
     var pct=maxVal>0?Math.round((sp.value/maxVal)*100):0;
     card2.appendChild(dv({marginTop:'12px'},[
       dv({display:'flex',justifyContent:'space-between',fontSize:'11px',color:'#607080',marginBottom:'4px'},[
-        dv({},['\\u2593 Value share']),
+        dv({},['\u2593 Value share']),
         dv({fontWeight:'700'},[pct+'%'])
       ]),
       dv({background:'#EEF2F5',borderRadius:'100px',height:'6px'},[
@@ -901,10 +901,44 @@ function render(){
   else main.appendChild(buildDashboard());
   root.appendChild(dv({display:'flex',minHeight:'100vh',width:'100%',background:'#fff'},[buildSidebar(),main]));
 }
+function platformUserToFacade(pu){
+  var role=(pu.apps&&pu.apps.facade&&pu.apps.facade.role)||((pu.platformRole==='admin')?'admin':'sales');
+  if(role!=='admin')role='sales';
+  return {id:'pf_'+(pu.id||pu.email),name:pu.name||pu.email,email:pu.email,role:role,active:true,sso:true};
+}
+function ssoUpsert(fu){
+  var us=(lsGet('users')||USERS_DEF).filter(function(x){return x.id!==fu.id&&x.email!==fu.email;});
+  us.push(fu);sv('users',us);return fu;
+}
+// SSO: the portal signs the logged-in platform user straight into the app
+window.addEventListener('message',function(ev){
+  try{
+    var d=ev.data;if(!d||d.type!=='idf-sso'||!d.user)return;
+    var fu=ssoUpsert(platformUserToFacade(d.user));
+    if(!S.user){S.user=fu;S.view='dashboard';render();}
+  }catch(e){}
+});
 function buildLogin(){
-  var email='',pwd='';
+  var email='',pwd='',checking=false;
   var errDiv=dv({background:'#FEF2F2',color:'#DC2626',borderRadius:'7px',padding:'8px 12px',marginBottom:'12px',fontSize:'12px',fontWeight:'600',display:'none'},['Invalid email or password']);
-  function go(){var u=null;(S.users||[]).forEach(function(x){if(x.email===email&&x.password===pwd&&x.active)u=x;});if(u){S.user=u;S.view='dashboard';render();}else{errDiv.style.display='block';errDiv.style.animation='shake .4s ease';}}
+  function showErr(){errDiv.style.display='block';errDiv.style.animation='shake .4s ease';}
+  function go(){
+    if(checking)return;
+    var u=null;(S.users||[]).forEach(function(x){if(x.email===email&&x.password===pwd&&x.active)u=x;});
+    if(u){S.user=u;S.view='dashboard';render();return;}
+    // Fallback: validate against the Interdec Platform backend (same credentials as the portal)
+    checking=true;sb.disabled=true;sb.textContent='Signing in…';
+    fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:pwd})})
+      .then(function(r){return r.ok?r.json():null;})
+      .then(function(res){
+        if(res&&res.user){
+          var fu=ssoUpsert(platformUserToFacade(res.user));
+          S.user=fu;S.view='dashboard';render();
+        }else{showErr();}
+      })
+      .catch(function(){showErr();})
+      .then(function(){checking=false;});
+  }
   var ei=inp(email,function(v){email=v;errDiv.style.display='none';},'you@company.com','email');
   var pi=inp(pwd,function(v){pwd=v;errDiv.style.display='none';},'••••••••','password');
   ei.addEventListener('keydown',function(e){if(e.key==='Enter')pi.focus();});
@@ -926,7 +960,7 @@ function buildLogin(){
       ]),
       dv({background:'#fff',borderRadius:'16px',padding:'28px 24px',boxShadow:'0 25px 60px rgba(0,0,0,0.3)'},[
         dv({fontSize:'16px',fontWeight:'700',color:'#0f172a',marginBottom:'4px'},['Sign In']),
-        dv({fontSize:'12.5px',color:'#94a3b8',marginBottom:'20px'},['Enter your credentials to continue']),
+        dv({fontSize:'12.5px',color:'#94a3b8',marginBottom:'20px'},['Use your Interdec Platform credentials']),
         errDiv,
         dv({display:'flex',flexDirection:'column',gap:'12px'},[
           dv({},[lbl1,ei]),
@@ -1613,7 +1647,7 @@ function buildRevDetail(){
   body.appendChild(dv({borderTop:'2px solid #DDE4EC',paddingTop:'20px',marginBottom:'16px'},[dv({fontSize:'11px',fontWeight:'700',color:'#0B2B2B',textTransform:'uppercase',marginBottom:'8px'},['Payment Terms']),h('p',{style:{fontSize:'13px',lineHeight:'1.7'}},[S.settings.paymentTerms||''])]));
   if(S.settings.tcs){
     body.appendChild(dv({borderTop:'1px solid #DDE4EC',paddingTop:'16px'},[dv({fontSize:'11px',fontWeight:'700',color:'#0B2B2B',textTransform:'uppercase',marginBottom:'8px'},['Terms & Conditions'])]));
-    S.settings.tcs.split('\\n').forEach(function(l){if(l.trim())body.querySelector('div:last-child').appendChild(h('p',{style:{color:'#607080',fontSize:'12px',margin:'0 0 4px',lineHeight:'1.6'}},[l]));});
+    S.settings.tcs.split('\n').forEach(function(l){if(l.trim())body.querySelector('div:last-child').appendChild(h('p',{style:{color:'#607080',fontSize:'12px',margin:'0 0 4px',lineHeight:'1.6'}},[l]));});
   }
   body.appendChild(dv({borderTop:'1px solid #DDE4EC',paddingTop:'12px',marginTop:'16px',display:'flex',justifyContent:'space-between'},[dv({fontSize:'11px',color:'#607080'},['Interdec Facade - Professional Glazing & Facade Solutions']),dv({fontSize:'11px',color:'#607080'},[quote.number+' Rev.'+rev.rev])]));
   doc.appendChild(body);wrap.appendChild(doc);
@@ -1866,8 +1900,8 @@ function buildSettingsAdmin(){
   ]);
 }
 
-try{render();}catch(err){document.getElementById('root').innerHTML='<div style="padding:40px;font-family:Georgia,serif"><h2 style="color:#DC2626;margin-bottom:16px">Startup Error</h2><pre style="background:#FEF2F2;padding:16px;border-radius:8px;font-size:12px;overflow:auto">'+err.toString()+'\\n\\n'+(err.stack||'')+'</pre></div>';}
+try{render();}catch(err){document.getElementById('root').innerHTML='<div style="padding:40px;font-family:Georgia,serif"><h2 style="color:#DC2626;margin-bottom:16px">Startup Error</h2><pre style="background:#FEF2F2;padding:16px;border-radius:8px;font-size:12px;overflow:auto">'+err.toString()+'\n\n'+(err.stack||'')+'</pre></div>';}
 
-<\/script>
+</script>
 </body>
 </html>
