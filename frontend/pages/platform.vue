@@ -2,9 +2,10 @@
 // Platform shell - auth guard, app selector, app views (mirrors original WP() flow)
 const { user, fetchMe } = useAuth();
 const { loadAll, loadUsers, loaded } = useData();
+const { request } = useApi();
 const ready = ref(false);
 
-// view: null = app selector | importflow | facade | catalogues | admin
+// view: null = app selector | importflow | facade | catalogues | admin | quotes
 const view = ref<string | null>(null);
 
 // importflow internal page state
@@ -47,13 +48,41 @@ const pushFacadeSSO = () => {
   }
 };
 
-// Facade messages: return-to-portal button, plus the SSO handshake where an
-// embedded facade without a session asks for the signed-in platform user
-const onFacadeMsg = (e: MessageEvent) => {
-  const t = (e.data as any)?.type;
+// Facade messages: return-to-portal button, the SSO handshake where an
+// embedded facade without a session asks for the signed-in platform user,
+// the legacy-to-native quote migration bridge, and open-quotes shortcut
+const onFacadeMsg = async (e: MessageEvent) => {
+  const d: any = e.data;
+  const t = d?.type;
   if (t === "idf-portal") goPortal();
   else if (t === "idf-sso-request") pushFacadeSSO();
+  else if (t === "idf-open-quotes") openApp("quotes");
+  else if (t === "idf-migrate") await runFacadeMigration(d.payload);
 };
+
+// Migration: the facade hands over its localStorage dataset; the server
+// imports it into the native quotes tables, then we tell the facade the result.
+const migrating = ref(false);
+const runFacadeMigration = async (payload: any) => {
+  if (migrating.value || !payload) return;
+  migrating.value = true;
+  try {
+    const res: any = await request("/api/quotes/migrate", { method: "POST", body: payload });
+    facadeFrame.value?.contentWindow?.postMessage({ type: "idf-migrate-done", result: res }, window.location.origin);
+    const n = res?.imported || 0;
+    const s = res?.skipped || 0;
+    if (n || s) {
+      notify(`Migration complete: ${n} quote(s) imported${s ? `, ${s} already existed (skipped)` : ""}`);
+    } else {
+      notify("Nothing to migrate - no quotes found in the legacy app");
+    }
+  } catch (err: any) {
+    notify(err?.message || "Migration failed", "error");
+  } finally {
+    migrating.value = false;
+  }
+};
+
 onMounted(() => window.addEventListener("message", onFacadeMsg));
 onUnmounted(() => window.removeEventListener("message", onFacadeMsg));
 

@@ -117,11 +117,13 @@ class QuoteRevision(Base):
     validity_days = Column(Integer, default=14)
     payment_terms = Column(Text, default="")
     note = Column(Text, default="")
+    logistics_cost = Column(Float, default=0.0)       # transport & logistics add-on (migrated from legacy facade)
+    logistics_location = Column(String, default="")
     cost = Column(Float, default=0)
     mk_amt = Column(Float, default=0)
     sub = Column(Float, default=0)
     vat_amt = Column(Float, default=0)
-    total = Column(Float, default=0)
+    total = Column(Float, default=0)                  # sub + vat + logistics_cost
     created = Column(Integer, default=0)
     updated = Column(Integer, default=0)
 

@@ -4,7 +4,7 @@ const props = defineProps<{ quoteId: string; catalog: any }>();
 const emit = defineEmits<{ (e: "back"): void; (e: "changed"): void; (e: "edit", q: any): void }>();
 
 const notify = inject<(m: string, t?: string) => void>("notify")!;
-const { request } = useApi();
+const { request, download } = useApi();
 const user = useAuth().user;
 const isAdmin = computed(() => user.value?.platformRole === "admin");
 
@@ -57,6 +57,27 @@ const fmtD = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "2-
 
 const printQuote = () => window.print();
 
+const exporting = ref(false);
+const exportExcel = async () => {
+  if (!rev.value) return;
+  exporting.value = true;
+  try {
+    const { blob, filename } = await download(`/api/quotes/${props.quoteId}/export?rev_id=${rev.value.id}`);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename || `${quote.value?.number || "quote"}-Rev${rev.value.rev}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+    notify("Excel exported");
+  } catch (e: any) {
+    notify(e.message || "Export failed", "error");
+  } finally {
+    exporting.value = false;
+  }
+};
+
 const settings = computed(() => props.catalog?.values?.settings || {});
 const validityTo = computed(() => {
   if (!rev.value?.created) return "-";
@@ -92,6 +113,7 @@ const chip: any = {
           </div>
         </div>
         <div style="display: flex; gap: 8px; flex-wrap: wrap">
+          <button class="btn excel" :disabled="exporting" @click="exportExcel">{{ exporting ? "Exporting..." : "⬇ Excel" }}</button>
           <button class="btn" @click="printQuote">Print</button>
           <button class="btn" @click="emit('edit', quote)">Edit</button>
           <button v-if="rev && rev.status === 'draft'" class="btn primary" @click="setStatus('sent')">Mark as Sent</button>
@@ -181,6 +203,10 @@ const chip: any = {
           <div class="brow"><span>Markup ({{ rev?.markupPct }}%)</span><strong>{{ fmtN(rev?.mkAmt) }}</strong></div>
           <div class="brow"><span>Subtotal</span><strong>{{ fmtN(rev?.sub) }}</strong></div>
           <div class="brow"><span>VAT ({{ rev?.vatPct }}%)</span><strong>{{ fmtN(rev?.vatAmt) }}</strong></div>
+          <div v-if="(rev?.logisticsCost || 0) > 0" class="brow">
+            <span>Transport &amp; Logistics{{ rev?.logisticsLocation ? ` to ${rev.logisticsLocation}` : "" }}</span>
+            <strong>{{ fmtN(rev?.logisticsCost) }}</strong>
+          </div>
           <div class="brow grand"><span>Grand Total</span><strong>{{ fmtN(rev?.total) }}</strong></div>
           <div class="pay">
             <div class="pay-t">Payment Terms</div>
@@ -244,6 +270,10 @@ const chip: any = {
         <div class="pz-tr"><span>Markup ({{ rev.markupPct }}%)</span><span>{{ fmtN(rev.mkAmt) }}</span></div>
         <div class="pz-tr"><span>Subtotal</span><span>{{ fmtN(rev.sub) }}</span></div>
         <div class="pz-tr"><span>VAT ({{ rev.vatPct }}%)</span><span>{{ fmtN(rev.vatAmt) }}</span></div>
+        <div v-if="(rev.logisticsCost || 0) > 0" class="pz-tr">
+          <span>Transport &amp; Logistics{{ rev.logisticsLocation ? ` to ${rev.logisticsLocation}` : "" }}</span>
+          <span>{{ fmtN(rev.logisticsCost) }}</span>
+        </div>
         <div class="pz-tr grand"><span>GRAND TOTAL (NGN)</span><span>{{ fmtN(rev.total) }}</span></div>
       </div>
       <div class="pz-terms">
@@ -270,6 +300,8 @@ const chip: any = {
 .btn.primary:hover { filter: brightness(1.05); color: #fff; }
 .btn.won { background: #16a34a; border: none; color: #fff; }
 .btn.lost { background: #ef4444; border: none; color: #fff; }
+.btn.excel:hover:not(:disabled) { border-color: #16a34a; color: #15803d; }
+.btn:disabled { opacity: .55; cursor: default; }
 .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
 .card.slim { padding: 10px 16px; }
 .card-t { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .8px; color: #0f172a; margin-bottom: 12px; }

@@ -5,13 +5,16 @@ server (per-record persistence, no last-write-wins blob), quote numbers are
 generated per-year max+1 (fixes audit R2), and the markup floor is enforced
 server-side (audit P2 hardening).
 """
+import datetime as _dt
+import io
 import time
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from .. import models, auth, pricing
+from .. import models, auth, pricing, excel_export
 from ..activity import log_action, notify_users
 from ..schemas import (
     QuoteCreate, QuoteUpdate, RevisionCreate, RevisionUpdate, StatusUpdate, CatalogUpdate,
@@ -120,7 +123,10 @@ def _rev_out(r: models.QuoteRevision, include_items: bool = True, db: Session | 
         "mkAmt": r.mk_amt,
         "sub": r.sub,
         "vatAmt": r.vat_amt,
+        "logisticsCost": r.logistics_cost or 0,
+        "logisticsLocation": r.logistics_location or "",
         "total": r.total,
+        "itemsCount": len(r.items or []),
         "created": r.created,
         "updated": r.updated,
     }
@@ -323,7 +329,7 @@ def _recompute(db, rev: models.QuoteRevision):
     rev.mk_amt = totals["mkAmt"]
     rev.sub = totals["sub"]
     rev.vat_amt = totals["vat"]
-    rev.total = totals["total"]
+    rev.total = totals["total"] + float(rev.logistics_cost or 0)  # logistics rides on top of VAT
     rev.updated = int(time.time() * 1000)
 
 
@@ -436,3 +442,210 @@ def set_revision_status(
     db.commit()
     db.refresh(rev)
     return _rev_out(rev, include_items=True)
+
+
+# ---------------------------------------------------------------------------
+# Legacy facade migration (demo quotes out of localStorage into the platform)
+# ---------------------------------------------------------------------------
+
+def _ms(v, fallback=None):
+    """Facade dates are ISO strings or ms; normalize to epoch ms."""
+    if v is None:
+        return fallback
+    if isinstance(v, (int, float)):
+        return int(v)
+    s = str(v)
+    try:
+        if s.isdigit():
+            return int(s)
+        return int(_dt.datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp() * 1000)
+    except ValueError:
+        return fallback
+
+
+def _migrate_revision(rev_in: dict, quote_in: dict, project_in: dict, legacy: dict, catalog: dict):
+    """Map one facade revision onto a native QuoteRevision (totals recomputed with
+    the facade's own catalog snapshot so migrated figures match the legacy app)."""
+    settings = legacy.get("settings") or {}
+    s = _settings(catalog)
+    now = int(time.time() * 1000)
+    created = _ms(rev_in.get("createdAt"), now)
+    updated = _ms(rev_in.get("updatedAt"), created)
+
+    items = rev_in.get("lineItems") or []
+    if not isinstance(items, list):
+        items = []
+    items = [{k: v for k, v in it.items() if k != "bom"} for it in items]
+
+    markup = rev_in.get("markupOverride")
+    if markup is None:
+        markup = settings.get("defaultMarkup", s.get("defaultMarkup", 100))
+    try:
+        markup = float(markup)
+    except (TypeError, ValueError):
+        markup = float(s.get("defaultMarkup", 100))
+    # No floor clamp on import: keep the legacy document's figures exactly.
+
+    vat = settings.get("vatRate", s.get("vatRate", 7.5))
+    try:
+        vat = float(vat)
+    except (TypeError, ValueError):
+        vat = 7.5
+
+    validity = int(s.get("validity", 14))
+    cu, vu = _ms(rev_in.get("createdAt")), _ms(rev_in.get("validUntil"))
+    if cu and vu and vu > cu:
+        validity = max(1, round((vu - cu) / 86400000))
+
+    status = rev_in.get("status") if rev_in.get("status") in STATUSES else "draft"
+    try:
+        rev_no = int(rev_in.get("rev", 0))
+    except (TypeError, ValueError):
+        rev_no = 0
+
+    logistics_cost = float(rev_in.get("logisticsCost") or 0) if rev_in.get("outsideLagos") else 0.0
+    totals = pricing.calc_totals(
+        items, markup, vat,
+        rates=legacy.get("rates"), gc=legacy.get("gc"), acp_panels=legacy.get("acpPanels"),
+        hw_items=legacy.get("hwItems"), hw_kits=legacy.get("hwKits"), sf=legacy.get("sf"),
+        mosq_rates=legacy.get("mosqRates"),
+    )
+
+    return models.QuoteRevision(
+        id=uuid.uuid4().hex[:12],
+        quote_id=None,  # set by caller after the parent quote is added
+        rev=rev_no,
+        status=status,
+        items=[{k: v for k, v in it.items() if k != "bom"} for it in totals["items"]],
+        markup_pct=markup,
+        vat_pct=vat,
+        validity_days=validity,
+        payment_terms=settings.get("paymentTerms") or s.get("paymentTerms", ""),
+        note=str(rev_in.get("notes") or ""),
+        logistics_cost=logistics_cost,
+        logistics_location=str(rev_in.get("logisticsLocation") or ""),
+        cost=totals["cost"], mk_amt=totals["mkAmt"], sub=totals["sub"], vat_amt=totals["vat"],
+        total=totals["total"] + logistics_cost,
+        created=created, updated=updated,
+    )
+
+
+@router.post("/migrate")
+def migrate_legacy(body: dict, user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    """Bulk-import quotes from the legacy facade app (localStorage dataset).
+
+    Payload: {projects: [...], settings, rates, gc, acpPanels, hwItems, hwKits, sf, mosqRates, salesPersons}
+    Idempotent: quotes whose number already exists are skipped, so re-running a
+    migration never duplicates data.
+    """
+    projects = body.get("projects") or []
+    if not isinstance(projects, list) or not projects:
+        raise HTTPException(400, "payload.projects must be a non-empty array")
+    if len(projects) > 500:
+        raise HTTPException(400, "Too many projects (max 500) - split the migration")
+
+    legacy = {k: body.get(k) for k in ("settings", "rates", "gc", "acpPanels", "hwItems", "hwKits", "sf", "mosqRates") if body.get(k)}
+    catalog = get_catalog(db)
+    sp_by_id = {s.get("id"): s for s in (body.get("salesPersons") or []) if isinstance(s, dict)}
+    now = int(time.time() * 1000)
+
+    existing_numbers = {r[0] for r in db.query(models.Quote.number).all()}
+    imported, skipped = [], []
+    for proj in projects:
+        if not isinstance(proj, dict) or not (proj.get("quotes") or []):
+            continue
+        if len(imported) + len(skipped) >= 2000:
+            break
+        client = proj.get("client") or {}
+        sp = sp_by_id.get(proj.get("salesPersonId")) or {}
+        notes_parts = []
+        if proj.get("siteAddress"):
+            notes_parts.append(f"Site: {proj['siteAddress']}")
+
+        for q_in in proj.get("quotes") or []:
+            if not isinstance(q_in, dict):
+                continue
+            number = str(q_in.get("number") or "").strip()
+            if not number:
+                continue
+            if number in existing_numbers:
+                skipped.append(number)
+                continue
+
+            first_created = _ms(q_in.get("createdAt"), now)
+            revs_in = sorted(
+                [r for r in (q_in.get("revisions") or []) if isinstance(r, dict)],
+                key=lambda r: int(r.get("rev", 0) or 0),
+            )
+            sales_person = sp.get("name") or (revs_in[-1].get("createdByName") if revs_in else "") or ""
+            desc = str(q_in.get("description") or "").strip()
+            if desc:
+                notes_parts.append(desc)
+
+            q = models.Quote(
+                id=uuid.uuid4().hex[:12],
+                number=number,
+                project_id=None,
+                project_name=str(proj.get("name") or ""),
+                client_name=str(client.get("name") or client.get("contact") or ""),
+                client_phone=str(client.get("phone") or client.get("compPhone") or ""),
+                client_email=str(client.get("email") or client.get("compEmail") or ""),
+                sales_person=sales_person,
+                notes="\n".join(notes_parts),
+                created=first_created,
+                updated=now,
+            )
+            db.add(q)
+            for r_in in revs_in:
+                rev = _migrate_revision(r_in, q_in, proj, legacy, catalog)
+                rev.quote_id = q.id
+                db.add(rev)
+            existing_numbers.add(number)
+            imported.append(number)
+
+    if imported:
+        log_action(db, user, "quote.migrated", f"Migrated {len(imported)} quote(s) from legacy facade: {', '.join(imported[:8])}{'...' if len(imported) > 8 else ''}", "📦")
+        _notify_admins(db, user, f"{user.name} migrated {len(imported)} quote(s) from the legacy facade app", "success", "📦")
+    db.commit()
+    return {"ok": True, "imported": len(imported), "skipped": len(skipped),
+            "importedNumbers": imported, "skippedNumbers": skipped}
+
+
+# ---------------------------------------------------------------------------
+# Excel export
+# ---------------------------------------------------------------------------
+
+def _xlsx_response(data: bytes, filename: str) -> StreamingResponse:
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export/all")
+def export_all(user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    quotes = []
+    for q in db.query(models.Quote).order_by(models.Quote.updated.desc()).all():
+        quotes.append(_quote_out(q, _quote_revisions(db, q.id)))
+    data = excel_export.build_quotes_list_workbook(quotes)
+    stamp = _dt.date.today().strftime("%Y%m%d")
+    return _xlsx_response(data, f"Interdec-Quotes-{stamp}.xlsx")
+
+
+@router.get("/{quote_id}/export")
+def export_quote(
+    quote_id: str,
+    rev_id: str | None = None,
+    user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db),
+):
+    q = _get_quote(db, quote_id)
+    revs = _quote_revisions(db, q.id, include_items=True)
+    if not revs:
+        raise HTTPException(400, "Quote has no revisions to export")
+    rev = next((r for r in revs if r["id"] == rev_id), None) if rev_id else None
+    rev = rev or max(revs, key=lambda r: r["rev"])
+    catalog = get_catalog(db)
+    data = excel_export.build_quote_workbook(_quote_out(q), rev, catalog)
+    return _xlsx_response(data, f"{q.number}-Rev{rev['rev']}.xlsx")

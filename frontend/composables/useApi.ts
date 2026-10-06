@@ -29,5 +29,20 @@ export const useApi = () => {
     }
   };
 
-  return { request };
+  // Binary download (Excel exports etc.): fetch raw with the auth header and
+  // hand back the blob + filename from Content-Disposition.
+  const download = async (path: string): Promise<{ blob: Blob; filename: string }> => {
+    const headers: Record<string, string> = {};
+    if (token.value) headers.Authorization = `Bearer ${token.value}`;
+    const res = await $fetch.raw(path, {
+      baseURL: config.public.apiBase as string,
+      headers,
+      responseType: "blob",
+    });
+    const cd = (res.headers.get("content-disposition") || "") as string;
+    const m = cd.match(/filename="?([^";]+)"?/);
+    return { blob: res._data as Blob, filename: m?.[1] || "export.xlsx" };
+  };
+
+  return { request, download };
 };

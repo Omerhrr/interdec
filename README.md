@@ -90,15 +90,28 @@ Seeded on first startup:
   14-day validity, IDF-YYYY-NNN numbering (per-year max+1), revision history with
   draft/sent/won/lost lifecycle, printable quote document, admin Rate Card for
   live rate changes without deployment
+- **Excel export**: one-click .xlsx from the server (openpyxl) - the quotes list
+  exports a pipeline summary workbook (Quotes + Revisions sheets), and each quote
+  revision exports a client-ready workbook (Work Breakdown item cards + summary +
+  payment terms/T&Cs + BOM Details sheet), mirroring the legacy facade deliverable
+  (with the legacy unit-price double-count fixed: unit = line selling / qty)
+- **Legacy migration**: the facade app shows a migration banner; one click hands
+  its localStorage dataset to `POST /api/quotes/migrate`, which imports quotes and
+  revisions into the server database (numbers preserved, totals recomputed with
+  the facade's own rate snapshot, transport & logistics retained per revision,
+  idempotent by quote number). The facade then flips to a read-only reference
 - **Facade Pricing** (legacy): the original single-file app embedded for reference;
-  quotations created there stay in browser localStorage
+  read-only after migration to the native Quotations app
 
 ### Pricing engine tests
 
 ```bash
-cd backend && python3 -m pytest tests/test_pricing.py -v
+cd backend && python3 -m pytest tests/test_pricing.py tests/test_quotes_export_migrate.py -v
 ```
 
 12 tests validate the ported engine against the audited pricing spec, including
 the golden reference case (EUROTEC Single Casement 1200x1500 x10, Tempered 8mm
-Clear = N1,666,000 cost -> N3,581,900 with 100% markup + 7.5% VAT).
+Clear = N1,666,000 cost -> N3,581,900 with 100% markup + 7.5% VAT). A further
+5 tests cover the legacy-facade migration (figure preservation, logistics
+add-on, idempotency by quote number) and the Excel exports (sheet structure,
+grand totals, per-unit pricing).

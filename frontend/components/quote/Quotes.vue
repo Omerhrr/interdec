@@ -4,7 +4,7 @@ const props = defineProps<{ page?: string }>();
 const emit = defineEmits<{ (e: "nav", k: string): void }>();
 
 const notify = inject<(m: string, t?: string) => void>("notify")!;
-const { request } = useApi();
+const { request, download } = useApi();
 const { projects, loadAll } = useData();
 const user = useAuth().user;
 
@@ -125,6 +125,30 @@ const del = async (q: any) => {
   }
 };
 
+const saveBlob = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+};
+
+const exporting = ref(false);
+const exportAll = async () => {
+  exporting.value = true;
+  try {
+    const { blob, filename } = await download("/api/quotes/export/all");
+    saveBlob(blob, filename);
+    notify("Quotes exported to Excel");
+  } catch (e: any) {
+    notify(e.message || "Export failed", "error");
+  } finally {
+    exporting.value = false;
+  }
+};
+
 const statusChip = (s: string) => {
   const map: any = {
     draft: { bg: "#F3F4F6", fg: "#4B5563", label: "Draft" },
@@ -171,6 +195,9 @@ const cancelled = () => backToList();
           <select v-model="statusFilter" class="inp" style="width: 130px">
             <option>All</option><option>draft</option><option>sent</option><option>won</option><option>lost</option>
           </select>
+          <button class="btn-export" :disabled="exporting || !quotes.length" @click="exportAll">
+            {{ exporting ? "Exporting..." : "⬇ Export" }}
+          </button>
         </div>
         <button class="btn-primary" @click="openNew">+ New Quote</button>
       </div>
@@ -246,6 +273,9 @@ const cancelled = () => backToList();
 .inp:focus { border-color: #f59e0b; }
 .btn-primary { background: linear-gradient(135deg, #f59e0b, #ea580c); color: #fff; border: none; border-radius: 8px; padding: 9px 16px; font-family: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
 .btn-primary:hover { filter: brightness(1.05); }
+.btn-export { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 14px; font-family: inherit; font-size: 12.5px; font-weight: 700; color: #475569; cursor: pointer; }
+.btn-export:hover:not(:disabled) { border-color: #16a34a; color: #15803d; }
+.btn-export:disabled { opacity: .5; cursor: default; }
 .empty { padding: 46px 20px; text-align: center; color: #94a3b8; font-size: 13px; }
 .tscroll { overflow-x: auto; }
 .tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }

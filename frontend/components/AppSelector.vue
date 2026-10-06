@@ -75,7 +75,7 @@ const hasQuotes = computed(() => has("quotes") || has("facade"));
             </svg>
           </div>
           <div class="app-name">Facade Pricing</div>
-          <div class="app-desc">Legacy quotation app (local browser storage)</div>
+          <div class="app-desc">Legacy app — quotations now live in Quotations (read-only reference)</div>
           <div class="app-access" :style="{ color: roleColors[facadeRole] }">Access: {{ roleLabels[facadeRole] }}</div>
         </button>
 
