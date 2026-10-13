@@ -26,7 +26,7 @@ def seed_quotes(db):
         )
         rev = models.QuoteRevision(
             id=uuid.uuid4().hex[:12], quote_id=q.id, rev=0, status=status,
-            items=[{k: v for k, v in it.items() if k != "bom"} for it in totals["items"]],
+            items=[dict(it) for it in totals["items"]],  # inputs + priced BOM snapshot
             markup_pct=markup, vat_pct=vat, validity_days=int(s["validity"]),
             payment_terms=s["paymentTerms"], note="",
             cost=totals["cost"], mk_amt=totals["mkAmt"], sub=totals["sub"],

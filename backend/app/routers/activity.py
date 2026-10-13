@@ -8,9 +8,13 @@ router = APIRouter(prefix="/api", tags=["activity"])
 
 
 @router.get("/activity")
-def recent_activity(limit: int = 30, db: Session = Depends(get_db),
+def recent_activity(limit: int = 30, include_auth: bool = False, db: Session = Depends(get_db),
                     user: models.User = Depends(auth.get_current_user)):
-    rows = db.query(models.ActivityLog).order_by(models.ActivityLog.ts.desc()).limit(max(1, min(limit, 100))).all()
+    q = db.query(models.ActivityLog)
+    if not include_auth:
+        # sign-ins and password changes drowned out real work in the feed
+        q = q.filter(~models.ActivityLog.action.like("auth.%"))
+    rows = q.order_by(models.ActivityLog.ts.desc()).limit(max(1, min(limit, 100))).all()
     return [
         {
             "id": r.id, "userId": r.user_id, "userName": r.user_name,

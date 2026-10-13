@@ -1,27 +1,76 @@
 <script setup lang="ts">
-// Platform shell - auth guard, app selector, app views (mirrors original WP() flow)
+// Platform shell. Every screen has a real URL, so Back, refresh, bookmarks and
+// shared links all work:
+//   /platform                                 portal
+//   /platform/importflow/<page>[/<id>]        dashboard | vendors | shippers | projects | shipments | reports
+//   /platform/quotes[/new | /<id>[/edit] | /rates]
+//   /platform/catalogues   /platform/facade   /platform/users
+// One instance of this page serves them all (no remount, data stays loaded).
+definePageMeta({ key: "platform" });
+const route = useRoute();
+const router = useRouter();
 const { user, fetchMe } = useAuth();
-const { loadAll, loadUsers, loaded } = useData();
+const { loadAll, loadUsers } = useData();
 const { request } = useApi();
 const ready = ref(false);
 
-// view: null = app selector | importflow | facade | catalogues | admin | quotes
-const view = ref<string | null>(null);
+const IF_PAGES = ["dashboard", "vendors", "shippers", "projects", "shipments", "reports"];
+const slug = computed<string[]>(() => {
+  const s = route.params.slug;
+  return (Array.isArray(s) ? s : s ? [s] : []).filter(Boolean) as string[];
+});
+// view: null = portal | importflow | facade | catalogues | admin | quotes
+const view = computed<string | null>(() => {
+  const a = slug.value[0];
+  if (!a) return null;
+  if (a === "users") return "admin";
+  return ["importflow", "quotes", "catalogues", "facade"].includes(a) ? a : null;
+});
+const page = computed(() => {
+  if (view.value === "importflow") return IF_PAGES.includes(slug.value[1]) ? slug.value[1] : "dashboard";
+  if (view.value === "quotes") return slug.value[1] === "rates" ? "rates" : "quotes";
+  return "vendors";
+});
+const detailId = computed(() => (view.value === "importflow" && slug.value[2]) || null);
+const detail = computed(() => (detailId.value ? "detail" : null));
+// quotes sub-view: list | new | detail | edit
+const quoteRoute = computed(() => {
+  const [, a, b] = slug.value;
+  if (!a || a === "rates") return { view: "list", id: null as string | null };
+  if (a === "new") return { view: "new", id: null };
+  return { view: b === "edit" ? "edit" : "detail", id: a };
+});
 
-// importflow internal page state
-const page = ref("dashboard");
-const detail = ref<string | null>(null); // 'detail' | null
-const detailId = ref<string | null>(null);
+// Access guard: a URL for an app you can't use sends you to the portal
+const canOpen = (v: string | null) => {
+  const u = user.value as any;
+  if (!u || !v) return true;
+  const has = (k: string) => !!u.apps?.[k]?.access;
+  const admin = u.platformRole === "admin";
+  if (v === "admin" || v === "facade") return admin;
+  if (v === "quotes") return admin || has("quotes") || has("facade");
+  if (v === "importflow") return admin || has("importflow");
+  if (v === "catalogues") return admin || has("catalogues");
+  return true;
+};
+watch([view, user], () => {
+  if (ready.value && !canOpen(view.value)) {
+    notify("You don't have access to that app", "error");
+    router.replace("/platform");
+  }
+});
 
 onMounted(async () => {
   const u = await fetchMe();
   if (!u) {
-    navigateTo("/");
+    // come back here after signing in
+    navigateTo({ path: "/", query: route.fullPath !== "/platform" ? { next: route.fullPath } : {} });
     return;
   }
   await loadAll();
   if (u.platformRole === "admin") loadUsers();
   ready.value = true;
+  if (!canOpen(view.value)) router.replace("/platform");
 });
 
 // Facade SSO - push the logged-in platform user into the facade app on iframe load
@@ -52,6 +101,11 @@ const pushFacadeSSO = () => {
 // embedded facade without a session asks for the signed-in platform user,
 // the legacy-to-native quote migration bridge, and open-quotes shortcut
 const onFacadeMsg = async (e: MessageEvent) => {
+  // Only trust messages from our own embedded facade iframe. Without this, any
+  // page that framed or opened the portal could trigger a quote migration as
+  // the signed-in user or request their SSO identity.
+  if (e.origin !== window.location.origin) return;
+  if (!facadeFrame.value || e.source !== facadeFrame.value.contentWindow) return;
   const d: any = e.data;
   const t = d?.type;
   if (t === "idf-portal") goPortal();
@@ -86,54 +140,57 @@ const runFacadeMigration = async (payload: any) => {
 onMounted(() => window.addEventListener("message", onFacadeMsg));
 onUnmounted(() => window.removeEventListener("message", onFacadeMsg));
 
-const goPortal = () => {
-  view.value = null;
-  page.value = "dashboard";
-  detail.value = null;
-  detailId.value = null;
-};
+const goPortal = () => router.push("/platform");
+const openApp = (app: string) => router.push(app === "admin" ? "/platform/users" : `/platform/${app}`);
 
-const openApp = (app: string) => {
-  if (app === "catalogues") {
-    view.value = "catalogues";
-    page.value = "vendors";
-  } else if (app === "quotes") {
-    view.value = "quotes";
-    page.value = "quotes";
-  } else {
-    view.value = app;
-    page.value = "dashboard";
-  }
-  detail.value = null;
-  detailId.value = null;
-};
-
-// ImportFlow navigation (mirrors Tn function)
+// In-app navigation keeps the signature the pages already use: (page, 'detail'|null, id)
 const navigate = (p: string, d: string | null = null, id: string | null = null) => {
-  page.value = p;
-  detail.value = d;
-  detailId.value = id;
+  if (view.value === "quotes") return router.push(p === "rates" ? "/platform/quotes/rates" : "/platform/quotes");
+  if (view.value === "catalogues") return;
+  router.push(`/platform/importflow/${p}${d && id ? `/${id}` : ""}`);
 };
 
-const toast = ref<{ m: string; t: string } | null>(null);
-let toastTimer: any = null;
-const notify = (m: string, t = "success") => {
-  toast.value = { m, t };
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (toast.value = null), 2500);
+// Toasts: success fades after 5s (10s when it offers Undo); errors stay until closed
+type Toast = { id: number; m: string; t: string; action?: { label: string; fn: () => void } };
+const toasts = ref<Toast[]>([]);
+let toastSeq = 0;
+const dismiss = (id: number) => (toasts.value = toasts.value.filter((x) => x.id !== id));
+const notify = (m: string, t = "success", opts: { action?: Toast["action"] } = {}) => {
+  const id = ++toastSeq;
+  toasts.value = [...toasts.value.slice(-2), { id, m, t, action: opts.action }];
+  if (t !== "error") setTimeout(() => dismiss(id), opts.action ? 10000 : 5000);
+};
+const runToastAction = (x: Toast) => {
+  dismiss(x.id);
+  x.action?.fn();
 };
 provide("notify", notify);
+
+// Switching app, page or record starts at the top. Previously the old scroll
+// position carried over, so you landed mid-page with the title hidden.
+watch(() => route.path, () => {
+  if (import.meta.client) window.scrollTo({ top: 0 });
+});
+// tab title names the screen (useful with several tabs, history and screen readers)
+const TITLES: Record<string, string> = { dashboard: "Dashboard", vendors: "Vendors", shippers: "Shippers", projects: "Projects", shipments: "Shipments", reports: "Reports", rates: "Rate Card", quotes: "Quotations" };
+useHead({
+  title: computed(() => {
+    const v = view.value;
+    const t = !v ? "Portal" : v === "admin" ? "Users" : v === "facade" ? "Legacy archive" : v === "catalogues" ? "Catalogues" : TITLES[page.value];
+    return `${t} · Interdec`;
+  }),
+});
 provide("navigate", navigate);
 </script>
 
 <template>
-  <div v-if="!ready" class="boot">
-    <div class="spinner"></div>
+  <div v-if="!ready" class="boot" aria-busy="true">
+    <div class="spinner" role="status"><span class="sr-only">Loading Interdec Platform</span></div>
   </div>
 
   <div v-else-if="user" style="min-height: 100vh">
     <!-- App Selector -->
-    <AppSelector v-if="!view" :user="user" @open="openApp" @admin="view = 'admin'" />
+    <AppSelector v-if="!view" :user="user" @open="openApp" @admin="openApp('admin')" />
 
     <!-- Facade (iframe) -->
     <div v-else-if="view === 'facade'" style="height: 100vh; background: #f0eee9">
@@ -174,7 +231,7 @@ provide("navigate", navigate);
       @portal="goPortal"
       @nav="navigate($event)"
     >
-      <QuoteQuotes v-if="page === 'quotes'" />
+      <QuoteQuotes v-if="page === 'quotes'" :route-view="quoteRoute.view" :route-id="quoteRoute.id" />
       <QuoteRateCard v-else-if="page === 'rates'" />
     </IfShell>
 
@@ -190,9 +247,19 @@ provide("navigate", navigate);
       <IfVendors catalogues :readonly="user.platformRole !== 'admin'" />
     </IfShell>
 
+    <UiConfirmHost />
+
+    <!-- Forced password change (demo / admin-set passwords) -->
+    <ChangePasswordModal v-if="user.mustChangePassword" forced />
+
     <!-- Toast -->
-    <div v-if="toast" class="toast" :style="{ background: toast.t === 'error' ? '#ef4444' : '#10b981' }">
-      {{ toast.m }}
+    <div class="toast-stack" role="status" aria-live="polite">
+      <div v-for="x in toasts" :key="x.id" class="toast" :class="x.t">
+        <UiIcon class="t-ic" :name="x.t === 'error' ? 'alert' : 'check'" />
+        <span style="flex: 1">{{ x.m }}</span>
+        <button v-if="x.action" class="toast-act" @click="runToastAction(x)">{{ x.action.label }}</button>
+        <button class="toast-x" aria-label="Dismiss" @click="dismiss(x.id)"><UiIcon name="x" :size="14" /></button>
+      </div>
     </div>
   </div>
 </template>

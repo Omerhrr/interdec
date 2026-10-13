@@ -7,15 +7,22 @@ from ..schemas import LoginRequest, TokenResponse, UserOut
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+DEMO_PASSWORDS = {"123456", "sales123", "viewer123"}
+
 
 @router.post("/login", response_model=TokenResponse)
 def login(body: LoginRequest, db: Session = Depends(get_db)):
     email = body.email.strip().lower()
     user = db.query(models.User).filter(models.User.email == email).first()
+    if not email or not body.password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
     if not user or not auth.verify_password(body.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="Email or password is incorrect")
     if not user.active:
         raise HTTPException(status_code=403, detail="Account disabled. Contact your administrator.")
+    # Publicly documented demo passwords must be replaced before real use
+    if body.password in DEMO_PASSWORDS and not user.must_change_password:
+        user.must_change_password = True
     token = auth.create_access_token(user.id, user.email)
     from ..activity import log_action
     log_action(db, user, "auth.login", f"{user.name} signed in", "🔓")
@@ -31,8 +38,9 @@ def me(user: models.User = Depends(auth.get_current_user)):
 @router.post("/change-password")
 def change_password(body: dict, db: Session = Depends(get_db),
                     user: models.User = Depends(auth.get_current_user)):
-    current = (body.get("currentPassword") or "").strip()
-    new = (body.get("newPassword") or "").strip()
+    # Passwords are compared verbatim (login never strips them either)
+    current = str(body.get("currentPassword") or "")
+    new = str(body.get("newPassword") or "")
     if not current or not new:
         raise HTTPException(status_code=400, detail="Current and new password are required")
     if len(new) < 6:
@@ -41,8 +49,10 @@ def change_password(body: dict, db: Session = Depends(get_db),
         raise HTTPException(status_code=401, detail="Current password is incorrect")
     if current == new:
         raise HTTPException(status_code=400, detail="New password must differ from the current one")
+    if new in DEMO_PASSWORDS:
+        raise HTTPException(status_code=400, detail="That password is publicly known; choose a different one")
     user.password_hash = auth.hash_password(new)
-    db.commit()
+    user.must_change_password = False
     from ..activity import log_action
     log_action(db, user, "auth.password_changed", f"{user.name} changed their password", "🔑")
     db.commit()

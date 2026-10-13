@@ -5,7 +5,7 @@ venv/
 __pycache__/
 *.pyc
 *.pyo
-
+AUDIR_REPORT.md
 # Nuxt / Nitro build output
 .nuxt/
 .output/
@@ -30,3 +30,6 @@ Thumbs.db
 # IDE
 .idea/
 .vscode/
+
+# Backend signing key (generated on first start)
+backend/.secret_key

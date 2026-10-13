@@ -8,16 +8,24 @@ const roleLabels: Record<string, string> = { admin: "Admin", user: "User", viewe
 const roleColors: Record<string, string> = { admin: "#8b5cf6", user: "#3b82f6", viewer: "#64748b", sales: "#f59e0b" };
 
 const facadeRole = computed(() => props.user?.apps?.facade?.role || "sales");
-const importflowRole = computed(() => props.user?.apps?.importflow?.role || "viewer");
+const importflowRole = computed(() =>
+  props.user?.platformRole === "admin" ? "admin" : props.user?.apps?.importflow?.role || "viewer"
+);
 const quotesRole = computed(() => props.user?.apps?.quotes?.role || props.user?.apps?.facade?.role || "sales");
 const has = (app: string) => !!props.user?.apps?.[app]?.access;
 // Quotations is the native replacement for the legacy facade app: anyone with
 // facade access gets it automatically (no user-record migration needed)
-const hasQuotes = computed(() => has("quotes") || has("facade"));
+const hasQuotes = computed(() => props.user?.platformRole === "admin" || has("quotes") || has("facade"));
+const isAdmin = computed(() => props.user?.platformRole === "admin");
+// Quotes moved to the native app: the legacy Facade is an admin-only archive now,
+// so sales staff never have to choose between two quote tools.
+const showFacade = computed(() => isAdmin.value && has("facade"));
+// Only call out access when it is limited; "Access: Admin" on every card is noise
+const limited = (role: string) => ["viewer", "sales", "user"].includes(role) && !isAdmin.value;
 </script>
 
 <template>
-  <div class="selector">
+  <main class="selector">
     <div class="selector-inner">
       <!-- Header -->
       <div class="sel-head">
@@ -29,7 +37,7 @@ const hasQuotes = computed(() => has("quotes") || has("facade"));
             </svg>
           </div>
           <div>
-            <div class="sel-title">Interdec Portal</div>
+            <h1 class="sel-title">Interdec Portal</h1>
             <div class="sel-sub">UNIFIED ACCESS PORTAL</div>
           </div>
         </div>
@@ -63,20 +71,20 @@ const hasQuotes = computed(() => has("quotes") || has("facade"));
             </svg>
           </div>
           <div class="app-name">Quotations</div>
-          <div class="app-desc">Server-side pricing engine for aluminium &amp; glass quotes</div>
-          <div class="app-access" :style="{ color: roleColors[quotesRole] }">Access: {{ roleLabels[quotesRole] }}</div>
+          <div class="app-desc">Price, send and track aluminium &amp; glass quotes</div>
+          <div v-if="limited(quotesRole)" class="app-access" :style="{ color: roleColors[quotesRole] }">{{ roleLabels[quotesRole] }} access</div>
         </button>
 
-        <button v-if="has('facade')" class="app-card" @click="emit('open', 'facade')">
+        <button v-if="showFacade" class="app-card legacy" @click="emit('open', 'facade')">
           <div class="app-ic" style="background: linear-gradient(135deg, #f59e0b, #ea580c)">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8">
               <rect x="3" y="4" width="20" height="18" rx="2"/><line x1="3" y1="10" x2="23" y2="10"/>
               <line x1="10" y1="4" x2="10" y2="22"/><line x1="16.5" y1="4" x2="16.5" y2="22"/>
             </svg>
           </div>
-          <div class="app-name">Facade Pricing</div>
-          <div class="app-desc">Legacy app — quotations now live in Quotations (read-only reference)</div>
-          <div class="app-access" :style="{ color: roleColors[facadeRole] }">Access: {{ roleLabels[facadeRole] }}</div>
+          <div class="app-name">Legacy archive</div>
+          <div class="app-desc">The old Facade Pricing app, kept for reference. Create new quotes in Quotations.</div>
+          <div class="app-access" style="color: #64748b">Admins only</div>
         </button>
 
         <button v-if="has('importflow')" class="app-card" @click="emit('open', 'importflow')">
@@ -88,7 +96,7 @@ const hasQuotes = computed(() => has("quotes") || has("facade"));
           </div>
           <div class="app-name">ImportFlow</div>
           <div class="app-desc">Importation cycle &amp; shipment management</div>
-          <div class="app-access" :style="{ color: roleColors[importflowRole] }">Access: {{ roleLabels[importflowRole] }}</div>
+          <div v-if="limited(importflowRole)" class="app-access" :style="{ color: roleColors[importflowRole] }">{{ roleLabels[importflowRole] }} access</div>
         </button>
 
         <button v-if="has('catalogues')" class="app-card" @click="emit('open', 'catalogues')">
@@ -99,10 +107,7 @@ const hasQuotes = computed(() => has("quotes") || has("facade"));
           </div>
           <div class="app-name">Catalogues</div>
           <div class="app-desc">Browse &amp; download vendor product catalogues</div>
-          <div
-            class="app-access"
-            :style="{ color: user.platformRole === 'admin' ? '#8b5cf6' : '#10b981' }"
-          >{{ user.platformRole === "admin" ? "Access: Admin" : "View Only" }}</div>
+          <div v-if="!isAdmin" class="app-access" style="color: #059669">View only</div>
         </button>
       </div>
 
@@ -121,7 +126,7 @@ const hasQuotes = computed(() => has("quotes") || has("facade"));
     </div>
 
     <ChangePasswordModal v-if="showPwd" @close="showPwd = false" />
-  </div>
+  </main>
 </template>
 
 <style scoped>
@@ -135,7 +140,7 @@ const hasQuotes = computed(() => has("quotes") || has("facade"));
   display: flex; align-items: center; justify-content: center;
 }
 .sel-title { font-size: 20px; font-weight: 800; color: #0f172a; }
-.sel-sub { font-size: 9px; font-weight: 700; color: #94a3b8; letter-spacing: 2.5px; margin-top: 2px; }
+.sel-sub { font-size: 9px; font-weight: 700; color: #64748b; letter-spacing: 2.5px; margin-top: 2px; }
 .sel-user { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid #e2e8f0; padding: 8px 14px; border-radius: 11px; }
 .pwd-btn {
   width: 36px; height: 36px; border-radius: 10px; border: 1.5px solid #e2e8f0; background: #fff;
@@ -147,7 +152,7 @@ const hasQuotes = computed(() => has("quotes") || has("facade"));
   font-size: 12px; font-weight: 800;
 }
 .sel-name { font-size: 12.5px; font-weight: 700; color: #0f172a; }
-.sel-role { font-size: 10px; color: #94a3b8; font-weight: 600; }
+.sel-role { font-size: 10px; color: #64748b; font-weight: 600; }
 .sel-cta { font-size: 13px; color: #64748b; margin-bottom: 18px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
 .app-card {
@@ -157,8 +162,10 @@ const hasQuotes = computed(() => has("quotes") || has("facade"));
 }
 .app-card:hover { transform: translateY(-4px); box-shadow: 0 12px 32px rgba(59,130,246,.15); border-color: #93c5fd; }
 .app-ic { width: 56px; height: 56px; border-radius: 14px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+.app-card.legacy { background: #f8fafc; box-shadow: none; border-style: dashed; }
+.app-card.legacy .app-ic { filter: grayscale(1); opacity: .6; }
 .app-name { font-size: 18px; font-weight: 800; color: #0f172a; margin-bottom: 4px; }
-.app-desc { font-size: 12.5px; color: #94a3b8; line-height: 1.5; }
+.app-desc { font-size: 12.5px; color: #64748b; line-height: 1.5; }
 .app-access { margin-top: 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; }
 .manage-btn {
   display: inline-flex; align-items: center; gap: 8px; padding: 10px 22px;
@@ -166,5 +173,5 @@ const hasQuotes = computed(() => has("quotes") || has("facade"));
   font-family: inherit; font-size: 13px; font-weight: 600; color: #475569; transition: all .2s;
 }
 .manage-btn:hover { border-color: #ef4444; color: #ef4444; }
-.sel-foot { margin-top: 40px; text-align: center; font-size: 11px; color: #94a3b8; }
+.sel-foot { margin-top: 40px; text-align: center; font-size: 11px; color: #64748b; }
 </style>

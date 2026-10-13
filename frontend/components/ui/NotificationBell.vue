@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // Notification bell with unread badge and dropdown feed
+defineProps<{ dark?: boolean }>();
 const { notifications, unread, loadNotifications, markAllRead, timeAgo } = useData();
 const open = ref(false);
 const wrap = ref<HTMLElement | null>(null);
@@ -30,11 +31,8 @@ const kindColor = (k: string) =>
 
 <template>
   <div ref="wrap" class="bell-wrap">
-    <button class="bell-btn" title="Notifications" @click.stop="toggle">
-      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
-        <path d="M13.7 21a2 2 0 0 1-3.4 0"/>
-      </svg>
+    <button class="bell-btn" :class="{ dark }" :aria-label="`Notifications${unread ? ` (${unread} unread)` : ''}`" @click.stop="toggle">
+      <UiIcon name="bell" :size="17" />
       <span v-if="unread > 0" class="badge">{{ unread > 9 ? "9+" : unread }}</span>
     </button>
 
@@ -68,6 +66,11 @@ const kindColor = (k: string) =>
   transition: all .15s;
 }
 .bell-btn:hover { border-color: #93c5fd; color: #2563eb; }
+.bell-btn.dark { width: 32px; height: 32px; background: transparent; border-color: #334155; color: #64748b; }
+.bell-btn.dark:hover { background: #334155; color: #fff; }
+.bell-btn.dark .badge { border-color: #1e293b; }
+/* opened from the sidebar footer: open upward and to the right */
+.dark + .panel { right: auto; left: 0; top: auto; bottom: 42px; }
 .badge {
   position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; padding: 0 4px;
   background: #ef4444; color: #fff; font-size: 9.5px; font-weight: 800; border-radius: 9px;
@@ -87,7 +90,7 @@ const kindColor = (k: string) =>
   background: none; border: none; color: #2563eb; font-size: 11px; font-weight: 700;
   cursor: pointer; font-family: inherit; padding: 0;
 }
-.empty { padding: 28px 16px; text-align: center; font-size: 12px; color: #94a3b8; }
+.empty { padding: 28px 16px; text-align: center; font-size: 12px; color: #64748b; }
 .list { max-height: 360px; overflow-y: auto; }
 .item {
   display: flex; gap: 10px; align-items: flex-start; padding: 11px 16px;

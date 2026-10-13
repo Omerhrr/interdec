@@ -13,12 +13,20 @@ export const STATUS_COLORS: Record<string, string> = {
   completed: "#10b981",
 };
 
+// Darker shades for status TEXT on tinted chips (>= 4.5:1 contrast)
+export const STATUS_TEXT: Record<string, string> = {
+  order_placed: "#1d4ed8",
+  under_production: "#b45309",
+  in_transit: "#6d28d9",
+  completed: "#047857",
+};
+
 export const STATUS_ORDER = ["order_placed", "under_production", "in_transit", "completed"];
 
 export const COMPANIES = [
-  { id: "facade", name: "Facade", color: "#5B8EC9", logo: "/img/logo-facade.png" },
-  { id: "davinci", name: "Davinci", color: "#D4684A", logo: "/img/logo-davinci.png" },
-  { id: "doortec", name: "Doortec", color: "#5BBF3A", logo: "/img/logo-doortec.png" },
+  { id: "facade", name: "Facade", color: "#5B8EC9", text: "#2f5f94", logo: "/img/logo-facade.png" },
+  { id: "davinci", name: "Davinci", color: "#D4684A", text: "#a53f24", logo: "/img/logo-davinci.png" },
+  { id: "doortec", name: "Doortec", color: "#5BBF3A", text: "#2f7a17", logo: "/img/logo-doortec.png" },
 ];
 
 export const CATEGORIES = ["Electronics","Raw Materials","Textiles","Food & Beverage","Machinery","Packaging","Chemicals","Furniture","Auto Parts","Glass & Glazing","Hardware","Other"];
@@ -43,6 +51,22 @@ export const COUNTRY_FLAGS: Record<string, string> = {
 export const fmtDate = (t?: number | null) =>
   t ? new Date(t).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "N/A";
 
+// ETA: new records store ISO "YYYY-MM-DD" (date picker); older ones hold free text "dd/mm/yy"
+export const etaToIso = (v?: string | null): string => {
+  if (!v) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  const m = v.trim().match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})$/);
+  if (!m) return "";
+  const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+  return `${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+};
+export const fmtEta = (v?: string | null) => {
+  const iso = etaToIso(v);
+  if (!iso) return v || "";
+  const [y, mo, d] = iso.split("-").map(Number);
+  return fmtDate(new Date(y, mo - 1, d).getTime());
+};
+
 export const fmtSize = (t?: number | null) =>
   !t ? "N/A" : t < 1024 ? t + " B" : t < 1048576 ? (t / 1024).toFixed(1) + " KB" : (t / 1048576).toFixed(1) + " MB";
 
@@ -60,6 +84,7 @@ export const fileToBase64 = (f: File): Promise<string> =>
 export const useConstants = () => ({
   STATUS_LABELS,
   STATUS_COLORS,
+  STATUS_TEXT,
   STATUS_ORDER,
   COMPANIES,
   CATEGORIES,
@@ -69,6 +94,8 @@ export const useConstants = () => ({
   DEFAULT_RATES,
   COUNTRY_FLAGS,
   fmtDate,
+  fmtEta,
+  etaToIso,
   fmtSize,
   uid,
   fileToBase64,

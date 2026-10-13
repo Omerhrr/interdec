@@ -1,23 +1,37 @@
-"""Shipments router — CRUD + workflow transitions + document uploads."""
-import base64
+"""Shipments router — CRUD + workflow transitions + document uploads.
+
+Workflow (enforced server-side):
+  order_placed --(vendor invoice uploaded)--> under_production
+  under_production --(status=in_transit; needs packing list + shipper)--> in_transit
+  in_transit --(goods confirmed / status=completed; needs shipper invoice)--> completed
+ImportFlow admins may override the status directly (e.g. to correct mistakes).
+"""
+import datetime as _dt
 import time
 import uuid
 from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
 from ..database import get_db
 from .. import models, auth
+from ..activity import log_action, notify_users
+from ..files import validate_upload, file_response
 from ..schemas import ShipmentCreate, ShipmentUpdate
 
 router = APIRouter(prefix="/api/shipments", tags=["shipments"])
 
+STATUS_ORDER = ["order_placed", "under_production", "in_transit", "completed"]
+COMPANIES = {"facade", "davinci", "doortec"}
+
 
 def _file_meta(f):
     """File metadata without base64 payload."""
-    if not f:
-        return None
-    if isinstance(f, dict):
-        return {k: f.get(k) for k in ("name", "size", "type", "uploaded")}
+    if isinstance(f, dict) and f:
+        meta = {k: f.get(k) for k in ("name", "size", "type", "uploaded")}
+        meta["hasData"] = bool(f.get("data"))
+        return meta
     return None
 
 
@@ -49,8 +63,23 @@ def _out(s: models.Shipment) -> dict:
 
 
 def _next_ref(db: Session) -> str:
-    count = db.query(models.Shipment).count()
-    return f"IMP-2026-{count + 1:03d}"
+    """IMP-YYYY-NNN, per-year max + 1. The old count()+1 scheme reused refs
+    after a deletion and was hard-coded to 2026."""
+    prefix = f"IMP-{_dt.date.today().year}-"
+    max_n = 0
+    for (ref,) in db.query(models.Shipment.ref).filter(models.Shipment.ref.like(f"{prefix}%")).all():
+        try:
+            max_n = max(max_n, int(ref[len(prefix):]))
+        except (TypeError, ValueError):
+            continue
+    return f"{prefix}{max_n + 1:03d}"
+
+
+def _get(db: Session, shipment_id: str) -> models.Shipment:
+    s = db.query(models.Shipment).filter(models.Shipment.id == shipment_id).first()
+    if not s:
+        raise HTTPException(404, "Shipment not found")
+    return s
 
 
 @router.get("")
@@ -71,17 +100,21 @@ def list_shipments(
 @router.post("")
 def create_shipment(
     body: ShipmentCreate,
-    user: models.User = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_importflow_editor),
     db: Session = Depends(get_db),
 ):
-    if not body.companyId:
+    if body.companyId not in COMPANIES:
         raise HTTPException(400, "Company is required")
     if not body.category:
         raise HTTPException(400, "Category is required")
-    if not body.vendorId:
+    if not body.vendorId or not db.query(models.Vendor).filter(models.Vendor.id == body.vendorId).first():
         raise HTTPException(400, "Vendor is required")
+    if body.projectId and not db.query(models.Project).filter(models.Project.id == body.projectId).first():
+        raise HTTPException(400, "Project not found")
     if not body.description or not body.description.strip():
         raise HTTPException(400, "Description is required")
+    if body.value is not None and body.value < 0:
+        raise HTTPException(400, "Value cannot be negative")
     now = int(time.time() * 1000)
     s = models.Shipment(
         id=uuid.uuid4().hex[:12],
@@ -108,7 +141,6 @@ def create_shipment(
         updated=now,
     )
     db.add(s)
-    from ..activity import log_action, notify_users
     log_action(db, user, "shipment.created", f"Created shipment {s.ref} ({body.description.strip()[:40]})", "📦")
     notify_users(db, db.query(models.User).filter(models.User.active == True).all(),  # noqa: E712
                  f"New shipment {s.ref} created by {user.name}", "info", "📦", exclude_user=user)
@@ -124,108 +156,114 @@ def download_file(
     user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db),
 ):
-    s = db.query(models.Shipment).filter(models.Shipment.id == shipment_id).first()
-    if not s:
-        raise HTTPException(404, "Shipment not found")
+    s = _get(db, shipment_id)
     field = {"vendorInvoice": s.vendor_invoice, "packingList": s.packing_list, "shipperInvoice": s.shipper_invoice}.get(kind)
     if not field:
         raise HTTPException(404, "File not uploaded")
-    try:
-        raw = base64.b64decode(field.get("data") or "")
-    except Exception:
-        raise HTTPException(500, "Corrupted file data")
-    from fastapi.responses import Response
-    media = field.get("type") or "application/pdf"
-    if not (media.startswith("application/") or media.startswith("image/") or media.startswith("text/")):
-        media = "application/octet-stream"
-    return Response(content=raw, media_type=media,
-                    headers={"Content-Disposition": f'inline; filename="{field.get("name", "document.pdf")}"'})
+    return file_response(field, "document.pdf")
 
 
 @router.put("/{shipment_id}")
 def update_shipment(
     shipment_id: str,
     body: ShipmentUpdate,
-    user: models.User = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_importflow_editor),
     db: Session = Depends(get_db),
 ):
-    s = db.query(models.Shipment).filter(models.Shipment.id == shipment_id).first()
-    if not s:
-        raise HTTPException(404, "Shipment not found")
-    role = auth.importflow_role(user)
-    can_edit = role in ("admin", "user")
+    s = _get(db, shipment_id)
+    is_admin = auth.importflow_role(user) == "admin"
     now = int(time.time() * 1000)
     old_status = s.status
     dates = dict(s.dates or {})
     data = body.model_dump(exclude_none=True)
 
-    if "productionDays" in data:
-        s.production_days = data["productionDays"]
+    if s.status == "completed" and not is_admin and set(data) - {"productionDays"}:
+        raise HTTPException(400, "This shipment is completed; only an ImportFlow admin can change it")
 
-    # Document uploads drive workflow status (only admin/user can edit)
+    if "productionDays" in data:
+        s.production_days = data["productionDays"].strip()
+
+    # --- documents ---
     if "vendorInvoice" in data:
-        if not can_edit:
-            raise HTTPException(403, "Not allowed")
-        f = data["vendorInvoice"]
-        s.vendor_invoice = f
+        s.vendor_invoice = validate_upload(data["vendorInvoice"], "Vendor invoice")
         dates["invoiceUploaded"] = now
         if s.status == "order_placed":
             s.status = "under_production"
     if "packingList" in data:
-        if not can_edit:
-            raise HTTPException(403, "Not allowed")
-        s.packing_list = data["packingList"]
+        if s.status == "order_placed" and not is_admin:
+            raise HTTPException(400, "Upload the vendor invoice before the packing list")
+        s.packing_list = validate_upload(data["packingList"], "Packing list")
         dates["packingReady"] = now
     if "shipperInvoice" in data:
-        if not can_edit:
-            raise HTTPException(403, "Not allowed")
-        s.shipper_invoice = data["shipperInvoice"]
+        if STATUS_ORDER.index(s.status) < STATUS_ORDER.index("in_transit") and not is_admin:
+            raise HTTPException(400, "Goods must be shipped before uploading the shipper invoice")
+        s.shipper_invoice = validate_upload(data["shipperInvoice"], "Shipper invoice")
         dates["shipperInvoiced"] = now
-    if "goodsConfirmed" in data:
-        if not can_edit:
-            raise HTTPException(403, "Not allowed")
-        s.goods_confirmed = bool(data["goodsConfirmed"])
-        if data["goodsConfirmed"] and s.status == "in_transit":
-            s.status = "completed"
-            dates["closed"] = now
+
+    # --- shipping details (no implicit status change) ---
     if "shipperId" in data:
-        if not can_edit:
-            raise HTTPException(403, "Not allowed")
-        s.shipper_id = data["shipperId"] or None
-        if s.shipper_id:
+        sid = data["shipperId"] or None
+        if sid and not db.query(models.Shipper).filter(models.Shipper.id == sid).first():
+            raise HTTPException(400, "Shipper not found")
+        if sid != s.shipper_id and s.status in ("in_transit", "completed") and not is_admin:
+            raise HTTPException(400, "The shipper cannot be changed after goods have shipped")
+        s.shipper_id = sid
+        if sid:
             dates["shipperSelected"] = now
-            # Ship goods: requires packing list + shipper -> moves to in_transit
-            if s.packing_list and s.status == "under_production":
-                s.status = "in_transit"
-                dates["shipped"] = now
     if "paymentTerms" in data:
-        if not can_edit:
-            raise HTTPException(403, "Not allowed")
-        s.payment_terms = data["paymentTerms"]
+        s.payment_terms = data["paymentTerms"] or None
     if "eta" in data:
-        if not can_edit:
-            raise HTTPException(403, "Not allowed")
-        s.eta = data["eta"]
+        s.eta = data["eta"].strip()
     if "shipMethod" in data:
-        if not can_edit:
-            raise HTTPException(403, "Not allowed")
         s.ship_method = data["shipMethod"]
-    if "status" in data and can_edit:
-        # manual status override (admin)
-        s.status = data["status"]
+
+    # --- status transitions ---
+    target = data.get("status")
+    if data.get("goodsConfirmed") is True:
+        target = target or "completed"
+    if "goodsConfirmed" in data and not data["goodsConfirmed"]:
+        s.goods_confirmed = False
+
+    if target and target != s.status:
+        if target == "in_transit" and s.status == "under_production":
+            if not s.packing_list:
+                raise HTTPException(400, "Upload the packing list before shipping")
+            if not s.shipper_id:
+                raise HTTPException(400, "Assign a shipper before shipping")
+            s.status = "in_transit"
+            dates["shipped"] = now
+        elif target == "completed" and s.status == "in_transit":
+            if not s.shipper_invoice:
+                raise HTTPException(400, "Upload the shipper invoice before closing the cycle")
+            s.status = "completed"
+            s.goods_confirmed = True
+            dates["closed"] = now
+        elif is_admin:
+            # manual override by an ImportFlow admin
+            s.status = target
+            if target == "in_transit":
+                dates.setdefault("shipped", now)
+            if target == "completed":
+                s.goods_confirmed = True
+                dates.setdefault("closed", now)
+        else:
+            raise HTTPException(
+                400, f"Cannot move from {old_status.replace('_', ' ')} to {target.replace('_', ' ')}"
+            )
+    elif target == "completed" and s.status == "completed":
+        s.goods_confirmed = True
 
     s.dates = dates
     s.updated = now
-    from ..activity import log_action, notify_users
     if s.status != old_status:
         log_action(db, user, "shipment.status", f"{s.ref}: {old_status.replace('_', ' ').title()} to {s.status.replace('_', ' ').title()}", "🔄")
         notify_users(db, db.query(models.User).filter(models.User.active == True).all(),  # noqa: E712
                      f"Shipment {s.ref} is now {s.status.replace('_', ' ')}", "success", "🔄", exclude_user=user)
-    elif "vendorInvoice" in data:
+    if "vendorInvoice" in data:
         log_action(db, user, "shipment.upload", f"{s.ref}: vendor invoice uploaded", "📄")
-    elif "packingList" in data:
+    if "packingList" in data:
         log_action(db, user, "shipment.upload", f"{s.ref}: packing list uploaded", "📄")
-    elif "shipperInvoice" in data:
+    if "shipperInvoice" in data:
         log_action(db, user, "shipment.upload", f"{s.ref}: shipper invoice uploaded", "📄")
     db.commit()
     db.refresh(s)
@@ -235,14 +273,12 @@ def update_shipment(
 @router.delete("/{shipment_id}")
 def delete_shipment(
     shipment_id: str,
-    user: models.User = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_importflow_editor),
     db: Session = Depends(get_db),
 ):
-    s = db.query(models.Shipment).filter(models.Shipment.id == shipment_id).first()
-    if not s:
-        raise HTTPException(404, "Shipment not found")
+    s = _get(db, shipment_id)
+    ref = s.ref
     db.delete(s)
-    from ..activity import log_action
-    log_action(db, user, "shipment.deleted", f"Deleted shipment {s.ref}", "🗑")
+    log_action(db, user, "shipment.deleted", f"Deleted shipment {ref}", "🗑")
     db.commit()
     return {"ok": True}

@@ -9,6 +9,10 @@ export const useData = () => {
   const notifications = useState<any[]>("notifications", () => []);
   const unread = useState<number>("unread_count", () => 0);
   const activity = useState<any[]>("activity_feed", () => []);
+  // Exchange rates to USD, stored on the server with who/when changed them
+  const fx = useState<{ rates: Record<string, number>; updated: number; updatedBy: string; isDefault: boolean }>(
+    "fx_rates", () => ({ rates: { ...DEFAULT_RATES }, updated: 0, updatedBy: "", isDefault: true })
+  );
 
   const { request } = useApi();
 
@@ -19,6 +23,7 @@ export const useData = () => {
         request<any[]>("/api/shippers"),
         request<any[]>("/api/projects"),
         request<any[]>("/api/shipments"),
+        loadFx(),
       ]);
       vendors.value = v;
       shippers.value = s;
@@ -30,6 +35,23 @@ export const useData = () => {
     }
   };
 
+  const loadFx = async () => {
+    try {
+      fx.value = await request("/api/settings/fx");
+    } catch {
+      /* keep defaults */
+    }
+  };
+  const saveFx = async (rates: Record<string, number>) => {
+    fx.value = await request("/api/settings/fx", { method: "PUT", body: { rates } });
+  };
+  const toUsd = (s: any) => (Number(s?.value) || 0) * (fx.value.rates[s?.currency] ?? 1);
+  const fxLabel = computed(() =>
+    fx.value.isDefault || !fx.value.updated
+      ? "default rates"
+      : `rates of ${fmtDate(fx.value.updated)}${fx.value.updatedBy ? ` (${fx.value.updatedBy})` : ""}`
+  );
+
   const loadUsers = async () => {
     try {
       users.value = await request<any[]>("/api/users");
@@ -38,9 +60,9 @@ export const useData = () => {
     }
   };
 
-  const loadActivity = async (limit = 12) => {
+  const loadActivity = async (limit = 12, includeAuth = false) => {
     try {
-      activity.value = await request<any[]>(`/api/activity?limit=${limit}`);
+      activity.value = await request<any[]>(`/api/activity?limit=${limit}${includeAuth ? "&include_auth=true" : ""}`);
     } catch {
       /* activity feed is non-critical */
     }
@@ -83,8 +105,8 @@ export const useData = () => {
 
   return {
     vendors, shippers, projects, shipments, users, loaded,
-    notifications, unread, activity,
-    loadAll, loadUsers, loadActivity, loadNotifications, markAllRead, timeAgo,
+    notifications, unread, activity, fx, fxLabel, toUsd,
+    loadAll, loadUsers, loadFx, saveFx, loadActivity, loadNotifications, markAllRead, timeAgo,
     vendorName, shipperName, projectName, company,
   };
 };

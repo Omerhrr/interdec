@@ -14,6 +14,13 @@
   --slate-50: #f8fafc;
   --blue: #3b82f6;
   --accent: #2563eb;
+  /* ONE primary action colour across every app (was blue, orange and teal) */
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-soft: #eff6ff;
+  --danger: #dc2626;
+  --success: #059669;
+  --text-muted: #64748b; /* 4.8:1 on white; #94a3b8 (2.6:1) is decoration only */
 }
 
 html, body, #__nuxt { width: 100%; min-height: 100vh; }
@@ -23,7 +30,22 @@ body {
   background: #f8fafc;
   color: #0f172a;
   -webkit-font-smoothing: antialiased;
+  /* aligned digits in every table, total and KPI */
+  font-variant-numeric: tabular-nums;
 }
+.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* inputs previously dropped the outline for a 1.8:1 pale border; give them a real ring */
+.inp:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--primary); outline-offset: 0; border-color: var(--primary);
+}
+.sr-only { position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.skip {
+  position: absolute; left: 12px; top: -60px; z-index: 3000; background: #0f172a; color: #fff;
+  padding: 10px 16px; border-radius: 8px; font-weight: 700; font-size: 13px; text-decoration: none;
+}
+.skip:focus { top: 12px; }
+.content:focus { outline: none; }
 
 @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes umFadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -36,8 +58,8 @@ body {
   font-size: 12.5px; font-weight: 600; padding: 9px 16px; transition: all .15s;
   line-height: 1;
 }
-.btn-accent { background: linear-gradient(135deg, #3b82f6, #4f46e5); color: #fff; }
-.btn-accent:hover { filter: brightness(1.08); }
+.btn-accent { background: var(--primary); color: #fff; }
+.btn-accent:hover { background: var(--primary-hover); }
 .btn-accent:disabled { opacity: .55; cursor: not-allowed; }
 .btn-secondary { background: #fff; color: #334155; border: 1.5px solid #e2e8f0; }
 .btn-secondary:hover { border-color: #cbd5e1; background: #f8fafc; }
@@ -53,11 +75,11 @@ body {
   font-size: 13px; font-family: inherit; outline: none; background: #fff;
   transition: border-color .15s; color: #0f172a;
 }
-.inp:focus { border-color: #93c5fd; }
-.inp::placeholder { color: #94a3b8; }
+.inp:focus { border-color: var(--primary); }
+.inp::placeholder { color: #7c8899; } /* 3.6:1: placeholders are hints, labels carry the meaning */
 
 .lbl {
-  display: block; font-size: 10px; font-weight: 700; color: #64748b;
+  display: block; font-size: 10.5px; font-weight: 700; color: #475569;
   text-transform: uppercase; letter-spacing: .8px; margin-bottom: 5px;
 }
 
@@ -89,13 +111,24 @@ body {
 }
 .modal-body { padding: 20px; }
 
-/* Toast */
-.toast {
-  position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
-  z-index: 2000; padding: 9px 22px; border-radius: 10px; font-size: 13px;
-  font-weight: 600; color: #fff; box-shadow: 0 6px 24px rgba(0,0,0,.15);
-  animation: umFadeIn .25s ease; white-space: nowrap;
+/* Toasts: bottom-right, clear of page titles; errors stay until dismissed */
+.toast-stack {
+  position: fixed; right: 18px; bottom: 18px; z-index: 2000;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
 }
+.toast {
+  display: flex; align-items: center; gap: 10px; max-width: 420px;
+  padding: 10px 12px 10px 14px; border-radius: 10px; font-size: 13px;
+  font-weight: 600; color: #fff; background: #0f172a; box-shadow: 0 10px 30px rgba(15,23,42,.25);
+  animation: umFadeIn .2s ease;
+}
+.toast.success .t-ic { color: #34d399; }
+.toast.error { background: #991b1b; }
+.toast-act {
+  background: rgba(255,255,255,.14); border: none; color: #fff; font: inherit; font-size: 12px;
+  font-weight: 700; padding: 4px 10px; border-radius: 6px; cursor: pointer;
+}
+.toast-x { background: none; border: none; color: rgba(255,255,255,.7); cursor: pointer; padding: 2px; display: flex; }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -107,7 +140,8 @@ body {
   .modal-overlay { padding: 20px 10px 16px; align-items: flex-start; }
   .modal-head { padding: 14px 16px; }
   .modal-body { padding: 16px; }
-  .toast { left: 10px; right: 10px; transform: none; text-align: center; white-space: normal; }
+  .toast-stack { left: 10px; right: 10px; bottom: 76px; align-items: stretch; }
+  .toast { max-width: none; }
 
   input.inp, select.inp, textarea.inp { font-size: 16px; } /* prevents iOS zoom */
 
@@ -125,3 +159,36 @@ body {
   .content { overflow: visible !important; }
   @page { margin: 14mm; size: A4; }
 }
+
+.btn-solid-danger { background: var(--danger); color: #fff; }
+.btn-solid-danger:hover { background: #b91c1c; }
+
+/* ---------- Target sizes (WCAG 2.2: 24px minimum; 44px on touch screens) ---------- */
+.link, .back, .back-link, button.mi {
+  min-height: 24px; display: inline-flex; align-items: center;
+}
+input[type="checkbox"], input[type="radio"] { width: 18px; height: 18px; accent-color: var(--primary); }
+.toast-x { min-width: 28px; min-height: 28px; align-items: center; justify-content: center; }
+@media (pointer: coarse), (max-width: 640px) {
+  .btn, .btn-sm, .inp, select.inp, .nav-btn, .mn-btn, .back-btn, .logout-btn, .burger,
+  .link, .back, .back-link, button.mi, .cat-pill, .cat-add, .toast-x, .revbtn, .tab, .bell-btn {
+    min-height: 44px;
+  }
+  .mn-btn, .bell-btn, .burger, .toast-x { min-width: 44px; }
+  input[type="checkbox"], input[type="radio"] { width: 22px; height: 22px; }
+}
+
+/* ---------- Loading skeletons ---------- */
+.skel {
+  height: 12px; border-radius: 6px; width: 100%;
+  background: linear-gradient(90deg, #eef2f6 25%, #f8fafc 50%, #eef2f6 75%); background-size: 200% 100%;
+  animation: skel 1.2s ease-in-out infinite;
+}
+@keyframes skel { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+@media (pointer: coarse), (max-width: 640px) {
+  .skip, .side-close { min-height: 44px; min-width: 44px; }
+}
+.item-tog, .v-meta a, .s-meta a, .v-meta .mi, .s-meta .mi { min-height: 24px; }

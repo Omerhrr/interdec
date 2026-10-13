@@ -1,6 +1,6 @@
 """Tests for legacy-facade migration + Excel export.
 
-Run:  cd /home/z/my-project/interdec-platform/backend && python3 -m pytest tests/test_quotes_export_migrate.py -v
+Run:  cd backend && python -m pytest tests/test_quotes_export_migrate.py -v
 """
 import io
 import os
@@ -144,7 +144,10 @@ def test_export_quote_workbook_golden():
 
     from openpyxl import load_workbook
     wb = load_workbook(io.BytesIO(data))
-    assert wb.sheetnames == ["Work Breakdown", "BOM Details"]
+    # the client workbook never carries costs or markup
+    assert wb.sheetnames == ["Work Breakdown"]
+    internal = load_workbook(io.BytesIO(build_quote_workbook(quote, rev, pricing.DEFAULT_CATALOG, internal=True)))
+    assert internal.sheetnames == ["Work Breakdown", "BOM Details"]
     ws = wb["Work Breakdown"]
     texts = [str(c.value) for row in ws.iter_rows() for c in row if c.value is not None]
     assert any("GRAND TOTAL" in t for t in texts)

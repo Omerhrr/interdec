@@ -1,0 +1,16 @@
+# Render Blueprint: New > Blueprint in the Render dashboard, pick this repo.
+services:
+  - type: web
+    name: interdec
+    runtime: docker
+    plan: starter            # needed for the disk below; see README "Deploy to Render"
+    healthCheckPath: /api/health
+    envVars:
+      - key: INTERDEC_SECRET_KEY
+        generateValue: true   # signs login tokens; Render creates a random one
+      - key: INTERDEC_DATABASE_URL
+        value: sqlite:////var/data/interdec.db
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1

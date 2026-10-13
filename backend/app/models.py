@@ -19,11 +19,16 @@ class User(Base):
     platform_role = Column(String, default="user")  # admin | user
     apps = Column(JSON, default=lambda: {})  # {facade:{access,role}, importflow:{access,role}, catalogues:{access}}
     active = Column(Boolean, default=True)
+    must_change_password = Column(Boolean, default=False)  # forced on demo/admin-set passwords
     created = Column(DateTime, default=datetime.utcnow)
 
     @property
     def platformRole(self):
         return self.platform_role
+
+    @property
+    def mustChangePassword(self):
+        return bool(self.must_change_password)
 
 
 class Vendor(Base):
@@ -119,6 +124,7 @@ class QuoteRevision(Base):
     note = Column(Text, default="")
     logistics_cost = Column(Float, default=0.0)       # transport & logistics add-on (migrated from legacy facade)
     logistics_location = Column(String, default="")
+    status_note = Column(Text, default="")            # why it was won/lost (PO no., competitor, price...)
     cost = Column(Float, default=0)
     mk_amt = Column(Float, default=0)
     sub = Column(Float, default=0)

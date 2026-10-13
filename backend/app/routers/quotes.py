@@ -11,11 +11,13 @@ import time
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models, auth, pricing, excel_export
 from ..activity import log_action, notify_users
+from ..files import content_disposition
 from ..schemas import (
     QuoteCreate, QuoteUpdate, RevisionCreate, RevisionUpdate, StatusUpdate, CatalogUpdate,
 )
@@ -40,7 +42,7 @@ def get_catalog(db: Session) -> dict:
 
 
 @router.get("/catalog")
-def read_catalog(user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+def read_catalog(user: models.User = Depends(auth.require_quotes_access), db: Session = Depends(get_db)):
     overrides = [s.key for s in db.query(models.FacadeSetting).all() if s.key in CATALOG_KEYS]
     return {"values": get_catalog(db), "overridden": overrides}
 
@@ -54,6 +56,9 @@ def update_catalog(
 ):
     if key not in CATALOG_KEYS:
         raise HTTPException(400, f"Unknown catalogue key. Valid: {sorted(CATALOG_KEYS)}")
+    if key in {"products", "subs"}:
+        raise HTTPException(400, "Products and sub-types are fixed by the pricing engine and cannot be overridden")
+    _validate_catalog_value(key, body.value)
     row = db.query(models.FacadeSetting).filter(models.FacadeSetting.key == key).first()
     if row:
         row.value = body.value
@@ -64,6 +69,70 @@ def update_catalog(
     log_action(db, user, "quote.catalog", f"Updated pricing catalogue: {key}", "⚙️")
     db.commit()
     return {"ok": True, "key": key, "values": get_catalog(db)}
+
+
+def _validate_catalog_value(key: str, value: dict):
+    """Reject overrides that would crash or silently zero the pricing engine."""
+    def num(v, label):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            raise HTTPException(400, f"{label} must be a number")
+        if f != f or f < 0:
+            raise HTTPException(400, f"{label} must be zero or more")
+        return f
+
+    if key == "rates":
+        br = value.get("brandRates")
+        if not isinstance(br, dict) or not br:
+            raise HTTPException(400, "rates.brandRates is required")
+        for k, v in br.items():
+            num(v, f"Brand rate {k}")
+        for k in ("gasketRate", "fabRate", "installRate", "subframeRate", "sealantRate"):
+            num(value.get(k), k)
+    elif key == "settings":
+        for k in ("defaultMarkup", "minMarkup", "vatRate", "validity"):
+            num(value.get(k), k)
+        if float(value["defaultMarkup"]) < float(value["minMarkup"]):
+            raise HTTPException(400, "Default markup cannot be below the minimum markup")
+        if int(float(value["validity"])) < 1:
+            raise HTTPException(400, "Quote validity must be at least 1 day")
+    elif key == "gc":
+        if not isinstance(value.get("types"), list) or not isinstance(value.get("colours"), list) \
+                or not isinstance(value.get("basePrices"), dict):
+            raise HTTPException(400, "gc needs types, colours and basePrices")
+        for k, v in value["basePrices"].items():
+            num(v, f"Glass price {k}")
+    elif key in ("sf", "mosqRates"):
+        for k, v in value.items():
+            num(v, f"{key}.{k}")
+
+
+def _calc(items, markup, vat, catalog: dict):
+    """Run the pricing engine with every catalogue table (incl. mosquito-net
+    rates, which were previously never passed, so nets were always free)."""
+    return pricing.calc_totals(
+        items, markup, vat,
+        rates=catalog.get("rates"), gc=catalog.get("gc"), acp_panels=catalog.get("acpPanels"),
+        hw_items=catalog.get("hwItems"), hw_kits=catalog.get("hwKits"), sf=catalog.get("sf"),
+        mosq_rates=catalog.get("mosqRates"),
+    )
+
+
+def _store_items(totals: dict) -> list:
+    """Persist item inputs *with* their BOM snapshot, so a saved revision keeps
+    showing the figures it was priced with even after the rate card changes."""
+    return [dict(it) for it in totals["items"]]
+
+
+def _float(v, label: str) -> float:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        raise HTTPException(400, f"{label} must be a number")
+    if f != f or f < 0 or f > 1000:
+        raise HTTPException(400, f"{label} must be between 0 and 1000")
+    return f
 
 
 def _settings(catalog: dict) -> dict:
@@ -77,8 +146,10 @@ def _clamp_markup(markup, catalog: dict) -> float:
         m = float(markup)
     except (TypeError, ValueError):
         m = float(s.get("defaultMarkup", 100))
+    if m != m:  # NaN
+        m = float(s.get("defaultMarkup", 100))
     floor = float(s.get("minMarkup", 70))
-    return max(m, floor)
+    return min(max(m, floor), 1000.0)
 
 
 # ---------------------------------------------------------------------------
@@ -86,21 +157,19 @@ def _clamp_markup(markup, catalog: dict) -> float:
 # ---------------------------------------------------------------------------
 
 @router.post("/calculate")
-def calculate(body: dict, user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+def calculate(body: dict, user: models.User = Depends(auth.require_quotes_access), db: Session = Depends(get_db)):
     catalog = get_catalog(db)
     items = body.get("items") or []
+    if not isinstance(items, list):
+        raise HTTPException(400, "items must be a list")
     s = _settings(catalog)
     markup = body.get("markupPct", s.get("defaultMarkup", 100))
     if markup is None:
         markup = s.get("defaultMarkup", 100)
     markup = _clamp_markup(markup, catalog)
     vat = body.get("vatPct")
-    vat = float(vat) if vat is not None else float(s.get("vatRate", 7.5))
-    totals = pricing.calc_totals(
-        items, markup, vat,
-        rates=catalog.get("rates"), gc=catalog.get("gc"), acp_panels=catalog.get("acpPanels"),
-        hw_items=catalog.get("hwItems"), hw_kits=catalog.get("hwKits"), sf=catalog.get("sf"),
-    )
+    vat = _float(vat, "VAT") if vat is not None else float(s.get("vatRate", 7.5))
+    totals = _calc(items, markup, vat, catalog)
     return {"markupPct": markup, "vatPct": vat, **totals}
 
 
@@ -125,6 +194,7 @@ def _rev_out(r: models.QuoteRevision, include_items: bool = True, db: Session | 
         "vatAmt": r.vat_amt,
         "logisticsCost": r.logistics_cost or 0,
         "logisticsLocation": r.logistics_location or "",
+        "statusNote": r.status_note or "",
         "total": r.total,
         "itemsCount": len(r.items or []),
         "created": r.created,
@@ -132,15 +202,10 @@ def _rev_out(r: models.QuoteRevision, include_items: bool = True, db: Session | 
     }
     if include_items:
         items = r.items or []
-        if db is not None and items:
-            # attach computed BOM + labels on read (storage keeps inputs only)
-            catalog = get_catalog(db)
-            totals = pricing.calc_totals(
-                items, r.markup_pct, r.vat_pct,
-                rates=catalog.get("rates"), gc=catalog.get("gc"), acp_panels=catalog.get("acpPanels"),
-                hw_items=catalog.get("hwItems"), hw_kits=catalog.get("hwKits"), sf=catalog.get("sf"),
-            )
-            items = totals["items"]
+        if db is not None and items and not all(isinstance(it, dict) and it.get("bom") for it in items):
+            # legacy rows stored inputs only: attach a BOM computed from the
+            # current catalogue (new rows carry their own priced snapshot)
+            items = _calc(items, r.markup_pct, r.vat_pct, get_catalog(db))["items"]
         d["items"] = items
     return d
 
@@ -195,7 +260,7 @@ def _notify_admins(db, actor, message, kind="info", icon="🔔"):
 # ---------------------------------------------------------------------------
 
 @router.get("")
-def list_quotes(user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+def list_quotes(user: models.User = Depends(auth.require_quotes_access), db: Session = Depends(get_db)):
     quotes = db.query(models.Quote).order_by(models.Quote.updated.desc()).all()
     out = []
     for q in quotes:
@@ -207,7 +272,7 @@ def list_quotes(user: models.User = Depends(auth.get_current_user), db: Session 
 @router.post("")
 def create_quote(
     body: QuoteCreate,
-    user: models.User = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_quotes_access),
     db: Session = Depends(get_db),
 ):
     now = int(time.time() * 1000)
@@ -220,16 +285,14 @@ def create_quote(
     project_name = ""
     if body.projectId:
         p = db.query(models.Project).filter(models.Project.id == body.projectId).first()
-        project_name = p.name if p else ""
+        if not p:
+            raise HTTPException(400, "Linked project not found")
+        project_name = p.name
 
     markup = _clamp_markup(body.markupPct if body.markupPct is not None else s.get("defaultMarkup", 100), catalog)
-    vat = float(body.vatPct) if body.vatPct is not None else float(s.get("vatRate", 7.5))
+    vat = _float(body.vatPct, "VAT") if body.vatPct is not None else float(s.get("vatRate", 7.5))
 
-    totals = pricing.calc_totals(
-        body.items, markup, vat,
-        rates=catalog.get("rates"), gc=catalog.get("gc"), acp_panels=catalog.get("acpPanels"),
-        hw_items=catalog.get("hwItems"), hw_kits=catalog.get("hwKits"), sf=catalog.get("sf"),
-    )
+    totals = _calc(body.items, markup, vat, catalog)
 
     q = models.Quote(
         id=uuid.uuid4().hex[:12],
@@ -249,7 +312,7 @@ def create_quote(
         quote_id=q.id,
         rev=0,
         status="draft",
-        items=[{k: v for k, v in it.items() if k != "bom"} for it in totals["items"]],
+        items=_store_items(totals),
         markup_pct=markup,
         vat_pct=vat,
         validity_days=int(s.get("validity", 14)),
@@ -266,13 +329,18 @@ def create_quote(
     db.add(rev)
     log_action(db, user, "quote.created", f"Created quote {number} for {q.client_name or 'unnamed client'}", "🧾")
     _notify_admins(db, user, f"{user.name} created quote {number}", "info", "🧾")
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        # two quotes created at the same instant drew the same number
+        db.rollback()
+        raise HTTPException(409, "Quote number clash, please save again")
     db.refresh(q)
     return _quote_out(q, _quote_revisions(db, q.id, include_items=True))
 
 
 @router.get("/{quote_id}")
-def get_quote(quote_id: str, user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+def get_quote(quote_id: str, user: models.User = Depends(auth.require_quotes_access), db: Session = Depends(get_db)):
     q = _get_quote(db, quote_id)
     return _quote_out(q, _quote_revisions(db, q.id, include_items=True))
 
@@ -281,13 +349,17 @@ def get_quote(quote_id: str, user: models.User = Depends(auth.get_current_user),
 def update_quote(
     quote_id: str,
     body: QuoteUpdate,
-    user: models.User = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_quotes_access),
     db: Session = Depends(get_db),
 ):
     q = _get_quote(db, quote_id)
     data = body.model_dump(exclude_none=True)
     if "projectId" in data:
-        p = db.query(models.Project).filter(models.Project.id == data["projectId"]).first()
+        pid = data["projectId"] or None
+        p = db.query(models.Project).filter(models.Project.id == pid).first() if pid else None
+        if pid and not p:
+            raise HTTPException(400, "Linked project not found")
+        q.project_id = pid  # was never saved before: only the name snapshot changed
         q.project_name = p.name if p else ""
     field_map = {
         "clientName": "client_name", "clientPhone": "client_phone",
@@ -318,13 +390,8 @@ def delete_quote(quote_id: str, user: models.User = Depends(auth.require_admin),
 # ---------------------------------------------------------------------------
 
 def _recompute(db, rev: models.QuoteRevision):
-    catalog = get_catalog(db)
-    totals = pricing.calc_totals(
-        rev.items or [], rev.markup_pct, rev.vat_pct,
-        rates=catalog.get("rates"), gc=catalog.get("gc"), acp_panels=catalog.get("acpPanels"),
-        hw_items=catalog.get("hwItems"), hw_kits=catalog.get("hwKits"), sf=catalog.get("sf"),
-    )
-    rev.items = [{k: v for k, v in it.items() if k != "bom"} for it in totals["items"]]
+    totals = _calc(rev.items or [], rev.markup_pct, rev.vat_pct, get_catalog(db))
+    rev.items = _store_items(totals)
     rev.cost = totals["cost"]
     rev.mk_amt = totals["mkAmt"]
     rev.sub = totals["sub"]
@@ -337,7 +404,7 @@ def _recompute(db, rev: models.QuoteRevision):
 def create_revision(
     quote_id: str,
     body: RevisionCreate,
-    user: models.User = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_quotes_access),
     db: Session = Depends(get_db),
 ):
     q = _get_quote(db, quote_id)
@@ -356,7 +423,7 @@ def create_revision(
         body.markupPct if body.markupPct is not None else (latest.markup_pct if latest else s.get("defaultMarkup", 100)),
         catalog,
     )
-    vat = float(body.vatPct) if body.vatPct is not None else (latest.vat_pct if latest else float(s.get("vatRate", 7.5)))
+    vat = _float(body.vatPct, "VAT") if body.vatPct is not None else (latest.vat_pct if latest else float(s.get("vatRate", 7.5)))
 
     rev = models.QuoteRevision(
         id=uuid.uuid4().hex[:12],
@@ -369,6 +436,8 @@ def create_revision(
         validity_days=latest.validity_days if latest else int(s.get("validity", 14)),
         payment_terms=latest.payment_terms if latest else s.get("paymentTerms", ""),
         note=body.note or "",
+        logistics_cost=(latest.logistics_cost or 0.0) if latest else 0.0,
+        logistics_location=(latest.logistics_location or "") if latest else "",
         created=now,
         updated=now,
     )
@@ -386,13 +455,15 @@ def update_revision(
     quote_id: str,
     rev_id: str,
     body: RevisionUpdate,
-    user: models.User = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_quotes_access),
     db: Session = Depends(get_db),
 ):
     q = _get_quote(db, quote_id)
     rev = db.query(models.QuoteRevision).filter(models.QuoteRevision.id == rev_id, models.QuoteRevision.quote_id == quote_id).first()
     if not rev:
         raise HTTPException(404, "Revision not found")
+    if rev.status != "draft":
+        raise HTTPException(400, f"Rev.{rev.rev} is {rev.status}; create a new revision to change it")
 
     data = body.model_dump(exclude_none=True)
     changed = False
@@ -404,7 +475,7 @@ def update_revision(
         rev.markup_pct = _clamp_markup(data["markupPct"], catalog)
         changed = True
     if "vatPct" in data:
-        rev.vat_pct = float(data["vatPct"])
+        rev.vat_pct = _float(data["vatPct"], "VAT")
         changed = True
     if "note" in data:
         rev.note = data["note"]
@@ -422,7 +493,7 @@ def set_revision_status(
     quote_id: str,
     rev_id: str,
     body: StatusUpdate,
-    user: models.User = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_quotes_access),
     db: Session = Depends(get_db),
 ):
     q = _get_quote(db, quote_id)
@@ -431,14 +502,28 @@ def set_revision_status(
         raise HTTPException(404, "Revision not found")
     if body.status not in STATUSES:
         raise HTTPException(400, "Status must be one of: draft, sent, won, lost")
+    latest_rev = (
+        db.query(models.QuoteRevision.rev)
+        .filter(models.QuoteRevision.quote_id == quote_id)
+        .order_by(models.QuoteRevision.rev.desc())
+        .first()
+    )
+    if latest_rev and rev.rev != latest_rev[0] and body.status != rev.status:
+        raise HTTPException(400, "Only the latest revision's status can change; older revisions are history")
+    note = (body.note or "").strip()[:500]
+    if body.status in ("won", "lost") and not note:
+        raise HTTPException(400, "Add a reason or PO reference when marking a quote won or lost")
     old = rev.status
     rev.status = body.status
+    rev.status_note = note if body.status in ("won", "lost") else ""
     rev.updated = int(time.time() * 1000)
     q.updated = rev.updated
     label = {"draft": "Draft", "sent": "Sent", "won": "Won", "lost": "Lost"}[body.status]
-    log_action(db, user, "quote.status", f"{q.number} Rev.{rev.rev}: {old} -> {body.status}", "🔁")
+    detail = f"{q.number} Rev.{rev.rev}: {old} -> {body.status}" + (f" ({note})" if note else "")
+    log_action(db, user, "quote.status", detail, "🔁")
     if body.status in ("sent", "won", "lost"):
-        _notify_admins(db, user, f"{q.number} Rev.{rev.rev} marked {label} ({user.name})", "success" if body.status == "won" else "info", "🧾")
+        msg = f"{q.number} Rev.{rev.rev} marked {label} ({user.name})" + (f": {note}" if note else "")
+        _notify_admins(db, user, msg, "success" if body.status == "won" else "info", "🧾")
     db.commit()
     db.refresh(rev)
     return _rev_out(rev, include_items=True)
@@ -475,7 +560,7 @@ def _migrate_revision(rev_in: dict, quote_in: dict, project_in: dict, legacy: di
     items = rev_in.get("lineItems") or []
     if not isinstance(items, list):
         items = []
-    items = [{k: v for k, v in it.items() if k != "bom"} for it in items]
+    items = [{k: v for k, v in it.items() if k != "bom"} for it in items if isinstance(it, dict)]
 
     markup = rev_in.get("markupOverride")
     if markup is None:
@@ -498,12 +583,16 @@ def _migrate_revision(rev_in: dict, quote_in: dict, project_in: dict, legacy: di
         validity = max(1, round((vu - cu) / 86400000))
 
     status = rev_in.get("status") if rev_in.get("status") in STATUSES else "draft"
+    items = [it for it in items if isinstance(it, dict)]
     try:
         rev_no = int(rev_in.get("rev", 0))
     except (TypeError, ValueError):
         rev_no = 0
 
-    logistics_cost = float(rev_in.get("logisticsCost") or 0) if rev_in.get("outsideLagos") else 0.0
+    try:
+        logistics_cost = max(0.0, float(rev_in.get("logisticsCost") or 0)) if rev_in.get("outsideLagos") else 0.0
+    except (TypeError, ValueError):
+        logistics_cost = 0.0
     totals = pricing.calc_totals(
         items, markup, vat,
         rates=legacy.get("rates"), gc=legacy.get("gc"), acp_panels=legacy.get("acpPanels"),
@@ -516,7 +605,7 @@ def _migrate_revision(rev_in: dict, quote_in: dict, project_in: dict, legacy: di
         quote_id=None,  # set by caller after the parent quote is added
         rev=rev_no,
         status=status,
-        items=[{k: v for k, v in it.items() if k != "bom"} for it in totals["items"]],
+        items=_store_items(totals),
         markup_pct=markup,
         vat_pct=vat,
         validity_days=validity,
@@ -531,7 +620,7 @@ def _migrate_revision(rev_in: dict, quote_in: dict, project_in: dict, legacy: di
 
 
 @router.post("/migrate")
-def migrate_legacy(body: dict, user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+def migrate_legacy(body: dict, user: models.User = Depends(auth.require_quotes_access), db: Session = Depends(get_db)):
     """Bulk-import quotes from the legacy facade app (localStorage dataset).
 
     Payload: {projects: [...], settings, rates, gc, acpPanels, hwItems, hwKits, sf, mosqRates, salesPersons}
@@ -557,10 +646,10 @@ def migrate_legacy(body: dict, user: models.User = Depends(auth.get_current_user
         if len(imported) + len(skipped) >= 2000:
             break
         client = proj.get("client") or {}
+        if not isinstance(client, dict):
+            client = {}
         sp = sp_by_id.get(proj.get("salesPersonId")) or {}
-        notes_parts = []
-        if proj.get("siteAddress"):
-            notes_parts.append(f"Site: {proj['siteAddress']}")
+        site = f"Site: {proj['siteAddress']}" if proj.get("siteAddress") else ""
 
         for q_in in proj.get("quotes") or []:
             if not isinstance(q_in, dict):
@@ -573,14 +662,22 @@ def migrate_legacy(body: dict, user: models.User = Depends(auth.get_current_user
                 continue
 
             first_created = _ms(q_in.get("createdAt"), now)
+            def _rev_no(r):
+                try:
+                    return int(r.get("rev", 0) or 0)
+                except (TypeError, ValueError):
+                    return 0
+
             revs_in = sorted(
                 [r for r in (q_in.get("revisions") or []) if isinstance(r, dict)],
-                key=lambda r: int(r.get("rev", 0) or 0),
+                key=_rev_no,
             )
+            if not revs_in:
+                skipped.append(number)
+                continue
             sales_person = sp.get("name") or (revs_in[-1].get("createdByName") if revs_in else "") or ""
-            desc = str(q_in.get("description") or "").strip()
-            if desc:
-                notes_parts.append(desc)
+            # notes are per quote (they used to accumulate across a project's quotes)
+            notes_parts = [p for p in (site, str(q_in.get("description") or "").strip()) if p]
 
             q = models.Quote(
                 id=uuid.uuid4().hex[:12],
@@ -619,12 +716,12 @@ def _xlsx_response(data: bytes, filename: str) -> StreamingResponse:
     return StreamingResponse(
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition("attachment", filename)},
     )
 
 
 @router.get("/export/all")
-def export_all(user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+def export_all(user: models.User = Depends(auth.require_quotes_access), db: Session = Depends(get_db)):
     quotes = []
     for q in db.query(models.Quote).order_by(models.Quote.updated.desc()).all():
         quotes.append(_quote_out(q, _quote_revisions(db, q.id)))
@@ -637,7 +734,8 @@ def export_all(user: models.User = Depends(auth.get_current_user), db: Session =
 def export_quote(
     quote_id: str,
     rev_id: str | None = None,
-    user: models.User = Depends(auth.get_current_user),
+    internal: bool = False,
+    user: models.User = Depends(auth.require_quotes_access),
     db: Session = Depends(get_db),
 ):
     q = _get_quote(db, quote_id)
@@ -647,5 +745,8 @@ def export_quote(
     rev = next((r for r in revs if r["id"] == rev_id), None) if rev_id else None
     rev = rev or max(revs, key=lambda r: r["rev"])
     catalog = get_catalog(db)
-    data = excel_export.build_quote_workbook(_quote_out(q), rev, catalog)
-    return _xlsx_response(data, f"{q.number}-Rev{rev['rev']}.xlsx")
+    if internal and not auth.is_quote_admin(user):
+        raise HTTPException(403, "Only quote admins can export internal costs")
+    data = excel_export.build_quote_workbook(_quote_out(q), rev, catalog, internal=internal)
+    suffix = "-INTERNAL" if internal else ""
+    return _xlsx_response(data, f"{q.number}-Rev{rev['rev']}{suffix}.xlsx")

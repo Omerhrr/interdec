@@ -118,7 +118,6 @@ class _Sheet:
         self.max_r = max(self.max_r, r2)
 
     def to_ws(self, wb, title, cols, default_h=16):
-        from openpyxl.worksheet.worksheet import Worksheet
         ws = wb.create_sheet(title)
         for (r, c), cell in self.grid.items():
             x = ws.cell(row=r, column=c)
@@ -150,7 +149,7 @@ def _item_cards(sh, items, markup):
     start = 4
     for i, it in enumerate(items):
         bom = it.get("bom") or {}
-        qty = max(1, int(it.get("qty") or 1))
+        qty = max(1, int(pricing._f(it.get("qty"), 1) or 1))
         line = bom.get("total") or 0
         selling = round(line * (1 + markup / 100.0))
         unit = round(selling / qty)
@@ -208,7 +207,7 @@ def _summary_block(sh, sum_start, items, markup, vat, rev):
         sh.put(sum_start + 1, LA + ci, _b(_s(h, True, 11, "FFFFFF", HDR_BLUE, ha), "thin", "thin", "thin", "thin"))
     for i, it in enumerate(items):
         bom = it.get("bom") or {}
-        qty = max(1, int(it.get("qty") or 1))
+        qty = max(1, int(pricing._f(it.get("qty"), 1) or 1))
         selling = round((bom.get("total") or 0) * (1 + markup / 100.0))
         unit = round(selling / qty)
         r = sum_start + 2 + i
@@ -258,8 +257,10 @@ def _terms_block(sh, pt_start, rev, settings):
             sh.merge(tc + li, LA, tc + li, LF)
 
 
-def build_quote_workbook(quote: dict, rev: dict, catalog: dict) -> bytes:
-    """Single-revision workbook: Work Breakdown + BOM Details (legacy layout)."""
+def build_quote_workbook(quote: dict, rev: dict, catalog: dict, internal: bool = False) -> bytes:
+    """Single-revision workbook. The client version holds the Work Breakdown only
+    (selling prices); `internal=True` adds the BOM Details sheet with costs and
+    markup, which must never be sent to a client."""
     settings = catalog.get("settings") or pricing.SETTINGS_DEF
     markup = float(rev.get("markupPct") or 0)
     vat = float(rev.get("vatPct") or 0)
@@ -293,7 +294,12 @@ def build_quote_workbook(quote: dict, rev: dict, catalog: dict) -> bytes:
         elif r == 1:
             ws.row_dimensions[r].height = 22
 
-    # ---- BOM Details sheet ----
+    if not internal:
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    # ---- BOM Details sheet (internal only) ----
     b = _Sheet()
     b.max_c = 17
     hdrs = ["#", "Pos.", "Description", "W (mm)", "H (mm)", "Area m\u00b2", "Profiles", "Glass/Panel",
@@ -304,14 +310,14 @@ def build_quote_workbook(quote: dict, rev: dict, catalog: dict) -> bytes:
     for i, it in enumerate(items):
         bom = it.get("bom") or {}
         is_lm = it.get("product") == "balustrade"
-        w = it.get("length") * 1000 if is_lm else it.get("width")
+        w = pricing._f(it.get("length")) * 1000 if is_lm else pricing._f(it.get("width"))
         selling = round((bom.get("total") or 0) * (1 + markup / 100.0))
         r = 2 + i
         vals = [
             _n(i + 1, False, "#,##0", None, "right"),
             _s(it.get("position") or "", True),
             _s(it.get("desc") or ""),
-            _n(w, False, "#,##0"), _n(it.get("height"), False, "#,##0"),
+            _n(w, False, "#,##0"), _n(pricing._f(it.get("height")), False, "#,##0"),
             _n(bom.get("area"), False, "#,##0.00"),
             _n(bom.get("profileCost")), _n(bom.get("glassCost")), _n(bom.get("gasketCost")),
             _n(bom.get("sealantCost")), _n(bom.get("hwCost")), _n(bom.get("subframeCost")),

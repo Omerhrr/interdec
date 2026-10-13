@@ -10,7 +10,9 @@ const role = computed(() => {
   if (props.quotesMode) return props.user?.apps?.quotes?.role || props.user?.apps?.facade?.role || "sales";
   if (props.cataloguesMode)
     return props.user?.platformRole === "admin" ? "admin" : "viewer";
-  return props.user?.apps?.importflow?.role || "viewer";
+  if (props.user?.platformRole === "admin") return "admin";
+  const flow = props.user?.apps?.importflow;
+  return flow?.access ? flow.role || "viewer" : "viewer";
 });
 const isPlatformAdmin = computed(() => props.user?.platformRole === "admin");
 const isAdmin = computed(() => role.value === "admin" && !props.cataloguesMode);
@@ -30,18 +32,18 @@ const appGradient = computed(() =>
 
 const navItems = computed(() => {
   if (props.quotesMode) {
-    const items = [{ k: "quotes", icon: "🧾", label: "Quotations" }];
-    if (isPlatformAdmin.value) items.push({ k: "rates", icon: "⚙", label: "Rate Card" });
+    const items = [{ k: "quotes", icon: "file", label: "Quotations" }];
+    if (isPlatformAdmin.value) items.push({ k: "rates", icon: "settings", label: "Rate Card" });
     return items;
   }
-  if (props.cataloguesMode) return [{ k: "vendors", icon: "📂", label: "Vendors" }];
+  if (props.cataloguesMode) return [{ k: "vendors", icon: "folder", label: "Vendors" }];
   return [
-    { k: "dashboard", icon: "⌂", label: "Dashboard" },
-    { k: "vendors", icon: "🏗", label: "Vendors" },
-    { k: "shippers", icon: "🚢", label: "Shippers" },
-    { k: "projects", icon: "📋", label: "Projects" },
-    { k: "shipments", icon: "🔄", label: "Shipments" },
-    { k: "reports", icon: "📊", label: "Reports" },
+    { k: "dashboard", icon: "home", label: "Dashboard" },
+    { k: "vendors", icon: "factory", label: "Vendors" },
+    { k: "shippers", icon: "ship", label: "Shippers" },
+    { k: "projects", icon: "clipboard", label: "Projects" },
+    { k: "shipments", icon: "cycle", label: "Shipments" },
+    { k: "reports", icon: "chart", label: "Reports" },
   ].filter((i) => (isAdmin.value ? true : isViewer.value ? i.k === "reports" : true));
 });
 
@@ -57,9 +59,10 @@ const nav = (k: string) => {
 
 <template>
   <div class="shell">
+    <a href="#main" class="skip">Skip to content</a>
     <!-- Mobile top bar -->
     <div class="mtop">
-      <button class="burger" @click="mobileOpen = true">
+      <button class="burger" aria-label="Open menu" :aria-expanded="mobileOpen" @click="mobileOpen = true">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
           <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
         </svg>
@@ -95,26 +98,23 @@ const nav = (k: string) => {
             {{ appSub }}
           </div>
         </div>
-        <button class="side-close" @click="mobileOpen = false">✕</button>
+        <button class="side-close" aria-label="Close menu" @click="mobileOpen = false"><UiIcon name="x" :size="16" /></button>
       </div>
 
       <button class="back-btn" @click="emit('portal')">
-        <span style="font-size: 12px">←</span> Interdec Portal
+        <UiIcon name="back" :size="13" /> Interdec Portal
       </button>
 
-      <div class="side-bell">
-        <UiNotificationBell />
-      </div>
-
-      <nav class="side-nav">
+      <nav class="side-nav" :aria-label="`${appTitle} navigation`">
         <button
           v-for="item in navItems"
           :key="item.k"
           class="nav-btn"
           :style="page === item.k ? { background: '#334155', color: '#fff' } : {}"
+          :aria-current="page === item.k ? 'page' : undefined"
           @click="nav(item.k)"
         >
-          <span style="font-size: 13px; width: 16px; text-align: center">{{ item.icon }}</span>
+          <UiIcon :name="item.icon" :size="16" />
           {{ item.label }}
         </button>
       </nav>
@@ -128,13 +128,14 @@ const nav = (k: string) => {
             <div class="user-name">{{ user.name }}</div>
             <div class="user-role" :style="{ color: roleColors[role] }">{{ roleLabels[role] }}</div>
           </div>
+          <UiNotificationBell dark />
         </div>
-        <button class="logout-btn" @click="logout">Sign Out</button>
+        <button class="logout-btn" @click="logout"><UiIcon name="logout" :size="13" /> Sign Out</button>
       </div>
     </aside>
 
     <!-- Content -->
-    <main class="content">
+    <main id="main" class="content" tabindex="-1">
       <slot />
     </main>
   </div>
@@ -159,6 +160,7 @@ const nav = (k: string) => {
 }
 .back-btn:hover { background: #334155; color: #fff; }
 .side-nav { flex: 1; padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.nav-btn[style*="background"] { box-shadow: inset 3px 0 0 #60a5fa; }
 .nav-btn {
   display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 7px; border: none;
   cursor: pointer; font-family: inherit; font-size: 12.5px; font-weight: 600; line-height: 1;
@@ -174,6 +176,7 @@ const nav = (k: string) => {
 .user-name { font-size: 11.5px; font-weight: 700; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .user-role { font-size: 9.5px; font-weight: 600; }
 .logout-btn {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
   width: 100%; padding: 6px; border-radius: 6px; border: 1px solid #334155; background: transparent;
   color: #94a3b8; cursor: pointer; font-family: inherit; font-size: 11px; font-weight: 600; transition: all .15s;
 }

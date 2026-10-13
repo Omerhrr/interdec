@@ -6,8 +6,9 @@ export interface PlatformUser {
   email: string;
   avatar: string;
   platformRole: "admin" | "user";
-  apps: { facade?: AppAccess; importflow?: AppAccess; catalogues?: AppAccess };
+  apps: { facade?: AppAccess; importflow?: AppAccess; catalogues?: AppAccess; quotes?: AppAccess };
   active: boolean;
+  mustChangePassword?: boolean;
 }
 
 export const useAuth = () => {
@@ -20,6 +21,9 @@ export const useAuth = () => {
     const res = await request<{ access_token: string; user: PlatformUser }>("/api/auth/login", {
       method: "POST",
       body: { email, password },
+      // a 401 here means wrong credentials, not an expired session: let the
+      // login form show the message instead of reloading the page
+      keepAuthOn401: true,
     });
     token.value = res.access_token;
     user.value = res.user;
@@ -43,7 +47,9 @@ export const useAuth = () => {
   };
 
   const importflowRole = computed<string>(() => {
-    return user.value?.apps?.importflow?.role || "viewer";
+    if (user.value?.platformRole === "admin") return "admin";
+    const flow = user.value?.apps?.importflow;
+    return flow?.access ? flow.role || "viewer" : "viewer";
   });
 
   return { token, user, login, fetchMe, logout, importflowRole };

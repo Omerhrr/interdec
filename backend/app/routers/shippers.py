@@ -35,11 +35,15 @@ def list_shippers(
 @router.post("")
 def create_shipper(
     body: ShipperCreate,
-    user: models.User = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_importflow_editor),
     db: Session = Depends(get_db),
 ):
     import time
-    s = models.Shipper(id=uuid.uuid4().hex[:12], **body.model_dump(), created=int(time.time() * 1000))
+    data = body.model_dump()
+    data["name"] = data["name"].strip()
+    if not data["name"]:
+        raise HTTPException(400, "Company name is required")
+    s = models.Shipper(id=uuid.uuid4().hex[:12], **data, created=int(time.time() * 1000))
     db.add(s)
     from ..activity import log_action
     log_action(db, user, "shipper.created", f"Created shipper {s.name}", "🚢")
@@ -52,13 +56,18 @@ def create_shipper(
 def update_shipper(
     shipper_id: str,
     body: ShipperUpdate,
-    user: models.User = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_importflow_editor),
     db: Session = Depends(get_db),
 ):
     s = db.query(models.Shipper).filter(models.Shipper.id == shipper_id).first()
     if not s:
         raise HTTPException(404, "Shipper not found")
-    for k, val in body.model_dump(exclude_none=True).items():
+    data = body.model_dump(exclude_none=True)
+    if "name" in data:
+        data["name"] = data["name"].strip()
+        if not data["name"]:
+            raise HTTPException(400, "Company name is required")
+    for k, val in data.items():
         setattr(s, k, val)
     from ..activity import log_action
     log_action(db, user, "shipper.updated", f"Updated shipper {s.name}", "✏️")
@@ -70,13 +79,19 @@ def update_shipper(
 @router.delete("/{shipper_id}")
 def delete_shipper(
     shipper_id: str,
-    user: models.User = Depends(auth.get_current_user),
+    user: models.User = Depends(auth.require_importflow_editor),
     db: Session = Depends(get_db),
 ):
     s = db.query(models.Shipper).filter(models.Shipper.id == shipper_id).first()
     if not s:
         raise HTTPException(404, "Shipper not found")
-    db.query(models.Shipment).filter(models.Shipment.shipper_id == shipper_id).update({"shipper_id": None})
+    in_use = db.query(models.Shipment).filter(models.Shipment.shipper_id == shipper_id).count()
+    if in_use:
+        # detaching would leave shipped/completed cycles without a carrier
+        raise HTTPException(400, f"Shipper is assigned to {in_use} shipment(s); reassign those first")
+    name = s.name
     db.delete(s)
+    from ..activity import log_action
+    log_action(db, user, "shipper.deleted", f"Deleted shipper {name}", "🗑")
     db.commit()
     return {"ok": True}

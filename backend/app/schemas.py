@@ -1,19 +1,10 @@
 """Pydantic schemas for request/response validation."""
-from pydantic import BaseModel, EmailStr
-from typing import Optional
-import base64
-import binascii
+from pydantic import BaseModel, ConfigDict
+from typing import Literal, Optional
 
-
-# --- Lenient email type (no strict validation to match original Firebase behavior) ---
-class LooseEmail(str):
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-
-    @classmethod
-    def validate(cls, v):
-        return str(v).strip().lower() if v else v
+ProjectStatus = Literal["Active", "Completed", "On Hold"]
+ShipmentStatus = Literal["order_placed", "under_production", "in_transit", "completed"]
+QuoteStatus = Literal["draft", "sent", "won", "lost"]
 
 
 class LoginRequest(BaseModel):
@@ -46,9 +37,9 @@ class UserOut(BaseModel):
     platformRole: str = "user"
     apps: dict = {}
     active: bool = True
+    mustChangePassword: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserCreate(BaseModel):
@@ -132,14 +123,14 @@ class ProjectCreate(BaseModel):
     name: str
     client: str = ""
     description: str = ""
-    status: str = "Active"
+    status: ProjectStatus = "Active"
 
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     client: Optional[str] = None
     description: Optional[str] = None
-    status: Optional[str] = None
+    status: Optional[ProjectStatus] = None
 
 
 class FileData(BaseModel):
@@ -167,7 +158,7 @@ class ShipmentUpdate(BaseModel):
     eta: Optional[str] = None
     shipMethod: Optional[str] = None
     productionDays: Optional[str] = None
-    status: Optional[str] = None
+    status: Optional[ShipmentStatus] = None
     vendorInvoice: Optional[FileData] = None
     packingList: Optional[FileData] = None
     shipperInvoice: Optional[FileData] = None
@@ -210,7 +201,8 @@ class RevisionUpdate(BaseModel):
 
 
 class StatusUpdate(BaseModel):
-    status: str  # draft | sent | won | lost
+    status: QuoteStatus
+    note: Optional[str] = None  # reason / PO reference, required for won and lost
 
 
 class CatalogUpdate(BaseModel):

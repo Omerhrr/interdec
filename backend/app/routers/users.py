@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 
 
 @router.get("", response_model=list[UserOut])
-def list_users(user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+def list_users(user: models.User = Depends(auth.require_admin), db: Session = Depends(get_db)):
     users = db.query(models.User).order_by(models.User.created).all()
     return [UserOut.model_validate(u) for u in users]
 
@@ -19,7 +19,34 @@ DEFAULT_APPS = {
     "facade": {"access": False, "role": "sales"},
     "importflow": {"access": False, "role": "viewer"},
     "catalogues": {"access": False},
+    "quotes": {"access": False, "role": "sales"},
 }
+VALID_ROLES = {
+    "facade": {"admin", "sales"},
+    "quotes": {"admin", "sales"},
+    "importflow": {"admin", "user", "viewer"},
+}
+
+
+def _clean_apps(apps: dict, base: dict) -> dict:
+    """Merge app-access patches, keeping only known apps/fields and valid roles."""
+    merged = {k: dict(v) for k, v in (base or {}).items() if isinstance(v, dict)}
+    for k, v in (apps or {}).items():
+        if k not in DEFAULT_APPS or not isinstance(v, dict):
+            continue
+        cur = merged.get(k) or dict(DEFAULT_APPS[k])
+        if "access" in v:
+            cur["access"] = bool(v["access"])
+        if "role" in v and k in VALID_ROLES:
+            if v["role"] not in VALID_ROLES[k]:
+                raise HTTPException(400, f"Invalid role '{v['role']}' for {k}")
+            cur["role"] = v["role"]
+        merged[k] = cur
+    return merged
+
+
+def _active_admins(db: Session) -> int:
+    return db.query(models.User).filter(models.User.platform_role == "admin", models.User.active == True).count()  # noqa: E712
 
 
 @router.post("", response_model=UserOut)
@@ -29,28 +56,25 @@ def create_user(
     db: Session = Depends(get_db),
 ):
     email = body.email.strip().lower()
-    if not email:
-        raise HTTPException(400, "Email is required")
+    if not email or "@" not in email:
+        raise HTTPException(400, "A valid email is required")
+    if not body.name.strip():
+        raise HTTPException(400, "Name is required")
     if db.query(models.User).filter(models.User.email == email).first():
         raise HTTPException(400, "A user with this email already exists")
     if len(body.password) < 6:
         raise HTTPException(400, "Password must be at least 6 characters")
-    apps = body.apps or {}
-    merged = {k: {**v} for k, v in DEFAULT_APPS.items()}
-    for k, v in apps.items():
-        if k in merged:
-            merged[k].update(v)
-        else:
-            merged[k] = v
+    merged = _clean_apps(body.apps or {}, {k: dict(v) for k, v in DEFAULT_APPS.items()})
     u = models.User(
         id=uuid.uuid4().hex[:12],
         name=body.name.strip(),
         email=email,
         password_hash=auth.hash_password(body.password),
-        avatar=(body.avatar or body.name.strip()[:2]).upper()[:2],
+        avatar=(body.avatar.strip() or body.name.strip()[:2]).upper()[:2],
         platform_role=body.platformRole if body.platformRole in ("admin", "user") else "user",
         apps=merged,
         active=True,
+        must_change_password=True,  # admin chose it; the user picks their own
     )
     db.add(u)
     from ..activity import log_action, notify_users
@@ -76,34 +100,38 @@ def update_user(
         raise HTTPException(404, "User not found")
     if body.email is not None:
         new_email = body.email.strip().lower()
+        if not new_email or "@" not in new_email:
+            raise HTTPException(400, "A valid email is required")
         existing = db.query(models.User).filter(models.User.email == new_email, models.User.id != user_id).first()
         if existing:
             raise HTTPException(400, "A user with this email already exists")
         u.email = new_email
     if body.name is not None:
+        if not body.name.strip():
+            raise HTTPException(400, "Name is required")
         u.name = body.name.strip()
     if body.password:
         if len(body.password) < 6:
             raise HTTPException(400, "Password must be at least 6 characters")
         u.password_hash = auth.hash_password(body.password)
+        if u.id != admin.id:
+            u.must_change_password = True
     if body.avatar is not None:
         u.avatar = body.avatar.upper()[:2]
     if body.platformRole is not None:
         if u.id == admin.id and body.platformRole != "admin":
             raise HTTPException(400, "You cannot remove your own admin role.")
+        if u.platform_role == "admin" and body.platformRole != "admin" and u.active and _active_admins(db) <= 1:
+            raise HTTPException(400, "At least one active platform admin is required.")
         u.platform_role = body.platformRole if body.platformRole in ("admin", "user") else "user"
     if body.apps is not None:
-        merged = dict(u.apps or {})
-        for k, v in body.apps.items():
-            if isinstance(v, dict):
-                merged[k] = {**(merged.get(k) or {}), **v}
-            else:
-                merged[k] = v
-        u.apps = merged
+        u.apps = _clean_apps(body.apps, dict(u.apps or {}))
     if body.active is not None:
         if u.id == admin.id and not body.active:
             raise HTTPException(400, "You cannot disable your own account.")
         u.active = body.active
+    from ..activity import log_action
+    log_action(db, admin, "user.updated", f"Updated user {u.name} ({u.email})", "👤")
     db.commit()
     db.refresh(u)
     return UserOut.model_validate(u)
@@ -120,8 +148,10 @@ def delete_user(
         raise HTTPException(404, "User not found")
     if u.id == admin.id:
         raise HTTPException(400, "You cannot delete your own account.")
+    name, email = u.name, u.email
+    db.query(models.Notification).filter(models.Notification.user_id == u.id).delete()
     db.delete(u)
     from ..activity import log_action
-    log_action(db, admin, "user.deleted", f"Deleted user {u.name} ({u.email})", "🗑")
+    log_action(db, admin, "user.deleted", f"Deleted user {name} ({email})", "🗑")
     db.commit()
     return {"ok": True}

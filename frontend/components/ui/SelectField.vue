@@ -17,7 +17,7 @@ const emit = defineEmits<{ (e: "update:modelValue", v: string): void }>();
       class="inp"
       :value="modelValue"
       :disabled="disabled"
-      :style="disabled ? { background: '#f8fafc', color: '#94a3b8', cursor: 'not-allowed' } : {}"
+      :style="disabled ? { background: '#f8fafc', color: '#64748b', cursor: 'not-allowed' } : {}"
       @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
     >
       <option value="" disabled>{{ placeholder || "Select..." }}</option>

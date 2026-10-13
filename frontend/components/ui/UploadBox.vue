@@ -23,17 +23,18 @@ const onChange = (e: Event) => {
   <div
     :style="{
       border: `1.5px dashed ${drag ? '#93c5fd' : '#e2e8f0'}`,
-      borderRadius: 9, padding: '18px 14px', textAlign: 'center', cursor: 'pointer',
+      borderRadius: '9px', padding: '18px 14px', textAlign: 'center', cursor: 'pointer',
       background: drag ? '#eff6ff' : '#f8fafc', transition: 'all .15s',
     }"
-    @click="pick"
+    role="button" tabindex="0" :aria-label="label"
+    @click="pick" @keydown.enter.prevent="pick" @keydown.space.prevent="pick"
     @dragover.prevent="drag = true"
     @dragleave="drag = false"
     @drop.prevent="onDrop"
   >
-    <div style="font-size: 20px; margin-bottom: 4px">📤</div>
+    <UiIcon name="upload" :size="20" style="color: #2563eb; margin-bottom: 4px" />
     <div style="font-size: 12px; font-weight: 700; color: #334155">{{ label }}</div>
-    <div style="font-size: 10px; color: #94a3b8; margin-top: 2px">Click or drag &amp; drop</div>
+    <div style="font-size: 10px; color: #64748b; margin-top: 2px">Click or drag &amp; drop</div>
     <input ref="inputRef" type="file" :multiple="multiple" :accept="accept" style="display: none" @change="onChange" />
   </div>
 </template>

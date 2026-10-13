@@ -1,17 +1,22 @@
 <script setup lang="ts">
-// Dashboard - company cards, active/closed stats, active pipeline (mirrors original)
+// Dashboard: company cards, active/closed stats, active pipeline, recent activity
 const emit = defineEmits<{ (e: "navigate", p: string, d?: string | null, id?: string | null): void }>();
-const { shipments, vendorName, shipperName, activity, loadActivity, timeAgo } = useData();
-const { user } = useAuth();
-onMounted(() => loadActivity(10));
-const { COMPANIES, STATUS_LABELS, STATUS_COLORS, STATUS_ORDER, COUNTRY_FLAGS } = useConstants();
-
-const role = computed(() => user.value?.apps?.importflow?.role || "viewer");
+const { shipments, vendorName, shipperName, activity, loadActivity, timeAgo, toUsd, fxLabel } = useData();
+const { COMPANIES, STATUS_ORDER } = useConstants();
+const { importflowRole: role } = useAuth();
 const canEdit = computed(() => role.value === "admin" || role.value === "user");
 
-const toUsd = (s: any) => (s.value || 0) * (DEFAULT_RATES[s.currency] || 1);
+// Activity: 5 latest by default (sign-ins excluded server-side); "View all" loads 30
+const showAllActivity = ref(false);
+const activityLoading = ref(true);
+onMounted(async () => { await loadActivity(5); activityLoading.value = false; });
+const toggleActivity = async () => {
+  showAllActivity.value = !showAllActivity.value;
+  await loadActivity(showAllActivity.value ? 30 : 5);
+};
+
 const totalUsd = (list: any[]) => list.reduce((a, s) => a + toUsd(s), 0);
-const fmtUsd = (n: number) => "$ " + Math.round(n).toLocaleString();
+const fmtUsd = (n: number) => "$" + Math.round(n).toLocaleString();
 
 const activeCount = computed(() => shipments.value.filter((s) => s.status !== "completed").length);
 const closedCount = computed(() => shipments.value.filter((s) => s.status === "completed").length);
@@ -23,156 +28,168 @@ const pipeline = computed(() =>
 );
 
 const newShipment = ref(false);
+const ratesOpen = ref(false);
 </script>
 
 <template>
   <div class="page">
     <div class="head">
-      <h2>Dashboard</h2>
-      <button v-if="canEdit" class="btn btn-accent" @click="newShipment = true">＋ New Shipment</button>
+      <h1 class="ph">Dashboard</h1>
+      <button v-if="canEdit" class="btn btn-accent fab-m" @click="newShipment = true">
+        <UiIcon name="plus" :size="15" /> New Shipment
+      </button>
     </div>
 
     <!-- Company cards -->
     <div class="company-grid">
-      <div
-        v-for="c in COMPANIES"
-        :key="c.id"
-        class="company-card"
-        :style="{ border: `1.5px solid ${c.color}20`, borderLeft: `4px solid ${c.color}` }"
-      >
+      <div v-for="c in COMPANIES" :key="c.id" class="company-card" :style="{ borderLeft: `4px solid ${c.color}` }">
         <div class="co-head">
-          <img :src="c.logo" :alt="c.name" style="height: 24px; object-fit: contain" />
+          <img :src="c.logo" alt="" style="height: 22px; object-fit: contain" />
           <span class="co-name">{{ c.name }}</span>
         </div>
         <div class="co-stats">
           <div>
-            <div class="co-num" :style="{ color: c.color }">
-              {{ shipments.filter((s) => s.companyId === c.id && s.status !== "completed").length }}
-            </div>
+            <div class="co-num">{{ shipments.filter((s) => s.companyId === c.id && s.status !== "completed").length }}</div>
             <div class="co-lbl">Active</div>
           </div>
           <div>
-            <div class="co-num" style="color: #334155">
-              {{ shipments.filter((s) => s.companyId === c.id).length }}
-            </div>
+            <div class="co-num">{{ shipments.filter((s) => s.companyId === c.id).length }}</div>
             <div class="co-lbl">Shipments</div>
           </div>
-          <div style="grid-column: span 1.4">
-            <div class="co-num co-val" :style="{ color: c.color }">
-              {{ fmtUsd(totalUsd(shipments.filter((s) => s.companyId === c.id))) }}
-            </div>
-            <div class="co-lbl">Total Value (USD)</div>
+          <div>
+            <div class="co-num co-val" :style="{ color: c.text }">{{ fmtUsd(totalUsd(shipments.filter((s) => s.companyId === c.id))) }}</div>
+            <div class="co-lbl">Total value (USD)</div>
           </div>
         </div>
       </div>
     </div>
+    <p class="fx-note">
+      USD totals use {{ fxLabel }}.
+      <button class="link" @click="ratesOpen = true">View or edit rates</button>
+    </p>
 
     <!-- Active / Closed stats -->
     <div class="stat-grid">
-      <div class="stat-card" :style="{ borderLeft: '4px solid #f59e0b' }">
-        <div class="stat-ic" style="background: #fef3c7">📦</div>
-        <div>
-          <div class="stat-num">{{ activeCount }}</div>
-          <div class="stat-lbl">Active Shipments</div>
-        </div>
-      </div>
-      <div class="stat-card" :style="{ borderLeft: '4px solid #10b981' }">
-        <div class="stat-ic" style="background: #d1fae5">✅</div>
-        <div>
-          <div class="stat-num">{{ closedCount }}</div>
-          <div class="stat-lbl">Closed Shipments</div>
-        </div>
-      </div>
+      <button class="stat-card" @click="emit('navigate', 'shipments', null, null)">
+        <span class="stat-ic" style="background: #fef3c7; color: #b45309"><UiIcon name="package" :size="18" /></span>
+        <span>
+          <span class="stat-num">{{ activeCount }}</span>
+          <span class="stat-lbl">Active shipments</span>
+        </span>
+      </button>
+      <button class="stat-card" @click="emit('navigate', 'shipments', null, null)">
+        <span class="stat-ic" style="background: #d1fae5; color: #047857"><UiIcon name="check" :size="18" /></span>
+        <span>
+          <span class="stat-num">{{ closedCount }}</span>
+          <span class="stat-lbl">Closed shipments</span>
+        </span>
+      </button>
     </div>
 
     <!-- Active Pipeline -->
-    <h3 class="pipe-title">Active Pipeline</h3>
+    <h2 class="pipe-title">Active pipeline</h2>
     <div class="pipe-list">
-      <div
-        v-for="s in pipeline"
-        :key="s.id"
-        class="pipe-row"
-        @click="emit('navigate', 'shipments', 'detail', s.id)"
-      >
-        <div style="min-width: 0">
-          <div class="pipe-top">
+      <button v-for="s in pipeline" :key="s.id" class="pipe-row" @click="emit('navigate', 'shipments', 'detail', s.id)">
+        <span style="min-width: 0; text-align: left">
+          <span class="pipe-top">
             <span class="mono pipe-ref">{{ s.ref }}</span>
             <UiCompanyChip :id="s.companyId" />
             <span class="chip" style="background: #f1f5f9; color: #475569">{{ s.category }}</span>
-          </div>
-          <div class="pipe-desc">{{ s.description }}</div>
-          <div class="pipe-meta">
-            🏭 {{ vendorName(s.vendorId) }}
-            <template v-if="s.shipperId"> · 🚢 {{ shipperName(s.shipperId) }}</template>
-            <template v-if="s.eta"> · 📅 ETA: <strong class="mono" style="color: #0ea5e9">{{ s.eta }}</strong></template>
-          </div>
-        </div>
-        <div style="text-align: right; flex-shrink: 0">
+          </span>
+          <span class="pipe-desc">{{ s.description }}</span>
+          <span class="pipe-meta">
+            <span class="mi"><UiIcon name="factory" :size="12" /> {{ vendorName(s.vendorId) }}</span>
+            <span v-if="s.shipperId" class="mi"><UiIcon name="ship" :size="12" /> {{ shipperName(s.shipperId) }}</span>
+            <span v-if="s.eta" class="mi"><UiIcon name="calendar" :size="12" /> ETA {{ fmtEta(s.eta) }}</span>
+          </span>
+        </span>
+        <span style="text-align: right; flex-shrink: 0">
           <UiStatusChip :status="s.status" />
-          <div class="mono pipe-val">{{ s.currency }} {{ (s.value || 0).toLocaleString() }}</div>
-        </div>
-      </div>
-      <div v-if="!pipeline.length" class="empty">🎉 All shipments completed. No active pipeline</div>
+          <span class="pipe-val num">{{ s.currency }} {{ (s.value || 0).toLocaleString() }}</span>
+        </span>
+      </button>
+      <div v-if="!pipeline.length" class="empty">All shipments are completed. Nothing in the pipeline.</div>
     </div>
 
     <!-- Recent Activity -->
-    <h3 class="pipe-title" style="margin-top: 26px">Recent Activity</h3>
+    <div class="act-head">
+      <h2 class="pipe-title" style="margin: 0">Recent activity</h2>
+      <button class="link" @click="toggleActivity">{{ showAllActivity ? "Show less" : "View all" }}</button>
+    </div>
     <div class="act-list">
       <div v-for="a in activity" :key="a.id" class="act-row">
-        <span class="act-ic">{{ a.icon }}</span>
-        <div style="flex: 1; min-width: 0">
-          <div class="act-detail">{{ a.detail }}</div>
-          <div class="act-meta">{{ a.userName }} · {{ timeAgo(a.ts) }}</div>
-        </div>
+        <span class="act-detail">{{ a.detail }}</span>
+        <span class="act-meta">{{ a.userName }} · {{ timeAgo(a.ts) }}</span>
       </div>
-      <div v-if="!activity.length" class="empty">No activity recorded yet</div>
+      <template v-if="activityLoading && !activity.length">
+        <div v-for="n in 3" :key="n" class="act-row" aria-hidden="true"><div class="skel" style="width: 55%" /><div class="skel" style="width: 18%" /></div>
+      </template>
+      <div v-else-if="!activity.length" class="empty">No activity recorded yet</div>
     </div>
 
-    <IfNewShipmentModal v-if="newShipment" @close="newShipment = false" />
+    <IfNewShipmentModal
+      v-if="newShipment"
+      @close="newShipment = false"
+      @created="(id: string) => emit('navigate', 'shipments', 'detail', id)"
+    />
+    <IfFxRatesModal v-if="ratesOpen" @close="ratesOpen = false" />
   </div>
 </template>
 
 <style scoped>
 .page { max-width: 1100px; margin: 0 auto; padding: 22px 26px; animation: fadeIn .3s; }
 .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 10px; }
-h2 { font-size: 20px; font-weight: 800; }
-.company-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px; }
+.ph { font-size: 20px; font-weight: 800; }
+.company-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 8px; }
 @media (max-width: 900px) { .company-grid { grid-template-columns: 1fr; } }
-.company-card { background: #fff; border-radius: 12px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.03); }
+.company-card { background: #fff; border-radius: 12px; padding: 16px 20px; border: 1px solid #eef2f6; }
 .co-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .co-name { font-size: 15px; font-weight: 700; color: #0f172a; }
 .co-stats { display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 8px; align-items: end; }
-.co-num { font-size: 18px; font-weight: 700; font-family: "JetBrains Mono", monospace; line-height: 1.2; }
-.co-val { font-size: 14px; }
-.co-lbl { font-size: 9px; color: #94a3b8; font-weight: 600; text-transform: uppercase; line-height: 1.4; }
-.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 22px; }
+.co-num { font-size: 19px; font-weight: 800; color: #0f172a; line-height: 1.2; }
+.co-val { font-size: 15px; }
+.co-lbl { font-size: 10px; color: #64748b; font-weight: 600; line-height: 1.4; }
+.fx-note { font-size: 11.5px; color: #64748b; margin-bottom: 18px; }
+.link { background: none; border: none; padding: 0; font: inherit; font-weight: 700; color: var(--primary); cursor: pointer; }
+.link:hover { text-decoration: underline; }
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
 .stat-card {
-  background: #fff; border-radius: 11px; padding: 16px 18px; border: 1px solid #f1f5f9;
-  display: flex; align-items: center; gap: 12px;
+  background: #fff; border-radius: 11px; padding: 14px 18px; border: 1px solid #eef2f6;
+  display: flex; align-items: center; gap: 12px; cursor: pointer; font: inherit; text-align: left;
 }
-.stat-ic { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 17px; }
-.stat-num { font-size: 22px; font-weight: 800; font-family: "JetBrains Mono", monospace; }
-.stat-lbl { font-size: 10.5px; color: #94a3b8; font-weight: 600; text-transform: uppercase; }
-.pipe-title { margin: 0 0 12px; font-size: 14px; font-weight: 700; color: #475569; }
-.pipe-list { display: grid; gap: 10px; margin-bottom: 22px; }
+.stat-card:hover { border-color: #bfdbfe; }
+.stat-ic { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+.stat-num { display: block; font-size: 22px; font-weight: 800; color: #0f172a; }
+.stat-lbl { display: block; font-size: 11px; color: #64748b; font-weight: 600; }
+.pipe-title { margin: 0 0 12px; font-size: 14px; font-weight: 700; color: #334155; }
+.pipe-list { display: grid; gap: 10px; margin-bottom: 26px; }
 .pipe-row {
-  background: #fff; border-radius: 11px; padding: 14px 18px; border: 1px solid #f1f5f9;
+  background: #fff; border-radius: 11px; padding: 14px 18px; border: 1px solid #eef2f6; width: 100%;
   cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 14px;
-  transition: all .15s;
+  transition: border-color .15s; font: inherit; color: inherit;
 }
-.pipe-row:hover { border-color: #ddd6fe; }
-.pipe-top { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; flex-wrap: wrap; }
-.pipe-ref { font-size: 11.5px; font-weight: 700; color: #3b82f6; }
-.pipe-desc { font-size: 13px; font-weight: 600; color: #0f172a; margin-bottom: 3px; }
-.pipe-meta { font-size: 11px; color: #94a3b8; }
-.pipe-val { font-size: 13.5px; font-weight: 700; margin-top: 4px; }
-.empty { text-align: center; padding: 34px; color: #94a3b8; font-size: 13px; background: #fff; border-radius: 11px; border: 1px dashed #e2e8f0; }
-.act-list { display: grid; gap: 8px; }
-.act-row {
-  display: flex; align-items: flex-start; gap: 11px; padding: 12px 16px;
-  background: #fff; border: 1px solid #e8eef5; border-radius: 11px;
+.pipe-row:hover { border-color: #bfdbfe; }
+.pipe-top { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap; }
+.pipe-ref { font-size: 11.5px; font-weight: 700; color: #1d4ed8; }
+.pipe-desc { display: block; font-size: 13.5px; font-weight: 600; color: #0f172a; margin-bottom: 4px; }
+.pipe-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; color: #64748b; }
+.mi { display: inline-flex; align-items: center; gap: 4px; }
+.pipe-val { display: block; font-size: 13.5px; font-weight: 700; margin-top: 5px; color: #0f172a; }
+.empty { text-align: center; padding: 30px; color: #64748b; font-size: 13px; background: #fff; border-radius: 11px; border: 1px dashed #e2e8f0; }
+.act-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; font-size: 12.5px; }
+.act-list { background: #fff; border: 1px solid #eef2f6; border-radius: 11px; overflow: hidden; }
+.act-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 16px; border-bottom: 1px solid #f1f5f9; }
+.act-row:last-child { border-bottom: none; }
+.act-detail { font-size: 12.5px; color: #334155; font-weight: 600; min-width: 0; }
+.act-meta { font-size: 11px; color: #64748b; white-space: nowrap; }
+.act-list .empty { border: none; }
+@media (max-width: 640px) {
+  .page { padding: 16px 14px 90px; }
+  .stat-grid { grid-template-columns: 1fr 1fr; }
+  .act-row { flex-direction: column; gap: 2px; }
+  .pipe-row { flex-direction: column; align-items: stretch; }
+  .pipe-row > span:last-child { display: flex; justify-content: space-between; align-items: center; text-align: left !important; }
+  /* primary action stays reachable as a floating button */
+  .fab-m { position: fixed; right: 16px; bottom: 18px; z-index: 30; border-radius: 999px; padding: 13px 18px; box-shadow: 0 8px 24px rgba(37,99,235,.35); }
 }
-.act-ic { font-size: 15px; line-height: 1.4; }
-.act-detail { font-size: 12.6px; color: #334155; font-weight: 600; line-height: 1.45; }
-.act-meta { font-size: 10.5px; color: #94a3b8; font-weight: 600; margin-top: 2px; }
 </style>

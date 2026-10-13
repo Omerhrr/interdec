@@ -243,7 +243,9 @@ function sv(key,val){
 // Legacy-app migration state: after quotes are handed over to the native
 // Quotations module this app becomes a read-only reference.
 var MIG=lsGet('migrated')||null;
-S.readonly=!!MIG;
+// The native Quotations app is now the only place to create or edit quotes, so this
+// archive is always read-only (migration of any remaining local data still works).
+S.readonly=true;
 var roTimer=null;
 function roNotice(){
   var t=document.getElementById('ro-toast');
@@ -254,12 +256,12 @@ function roNotice(){
 }
 function facadeQuoteCount(){return (S.projects||[]).reduce(function(s,p){return s+((p.quotes||[]).length);},0);}
 function openNativeQuotes(){
-  try{window.parent.postMessage({type:'idf-open-quotes'},'*');}catch(e){alert('Open the Interdec Platform portal to use the native Quotations app.');}
+  try{window.parent.postMessage({type:'idf-open-quotes'},location.origin);}catch(e){alert('Open the Interdec Platform portal to use the native Quotations app.');}
 }
 function requestMigration(){
   if(window.parent===window.self){alert('Open the Interdec Platform portal and use this app from there to run the migration.');return;}
   if(!confirm('Move all quotations from this legacy app into the platform? This app becomes read-only afterwards.'))return;
-  try{window.parent.postMessage({type:'idf-migrate',payload:{projects:S.projects,settings:S.settings,rates:S.rates,gc:S.gc,acpPanels:S.acpPanels,hwItems:S.hwItems,hwKits:S.hwKits,sf:S.sf,mosqRates:S.mosqRates,salesPersons:S.salesPersons}},'*');}catch(e){}
+  try{window.parent.postMessage({type:'idf-migrate',payload:{projects:S.projects,settings:S.settings,rates:S.rates,gc:S.gc,acpPanels:S.acpPanels,hwItems:S.hwItems,hwKits:S.hwKits,sf:S.sf,mosqRates:S.mosqRates,salesPersons:S.salesPersons}},location.origin);}catch(e){}
 }
 function buildMigBanner(){
   var open=btn('Open Quotations',function(){openNativeQuotes();},'#0B2B2B','#fff',{padding:'7px 14px',fontSize:'12px',borderRadius:'8px'});
@@ -532,10 +534,6 @@ function exportToExcel(proj,quote,rev){
     document.body.appendChild(a);
     a.click();
     setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(url);}, 100);
-    // Fallback: also try the native XLSX method in case the above is blocked
-    if (typeof window.parent !== 'undefined' && window.parent !== window) {
-      try { window.parent.postMessage({type:'facade-download', fileName:fileName, data:wbout}, '*'); } catch(e){}
-    }
   } catch(e) {
     console.error('Excel export failed:', e);
     alert('Excel export failed. Please check the browser console.');
@@ -984,6 +982,7 @@ function ssoUpsert(fu){
 // SSO: the portal signs the logged-in platform user straight into the app
 window.addEventListener('message',function(ev){
   try{
+    if(ev.origin!==location.origin||ev.source!==window.parent)return;
     var d=ev.data;if(!d||d.type!=='idf-sso'||!d.user)return;
     var fu=ssoUpsert(platformUserToFacade(d.user));
     if(!S.user){S.user=fu;S.view='dashboard';render();}
@@ -992,12 +991,13 @@ window.addEventListener('message',function(ev){
 // Handshake: when embedded in the portal without a session, ask the shell
 // for the signed-in platform user. Retries cover shell hydration timing.
 if(window.parent&&window.parent!==window.self&&!S.user){
-  var ssoAsk=function(){try{window.parent.postMessage({type:'idf-sso-request'},'*');}catch(e){}};
+  var ssoAsk=function(){try{window.parent.postMessage({type:'idf-sso-request'},location.origin);}catch(e){}};
   ssoAsk();setTimeout(ssoAsk,500);setTimeout(ssoAsk,1500);
 }
 // Migration result from the shell: the dataset was imported into the platform.
 window.addEventListener('message',function(ev){
   try{
+    if(ev.origin!==location.origin||ev.source!==window.parent)return;
     var d=ev.data;if(!d||d.type!=='idf-migrate-done'||!d.result)return;
     MIG={at:Date.now(),imported:d.result.imported||0,skipped:d.result.skipped||0};
     lsSet('migrated',MIG);
@@ -1074,7 +1074,7 @@ function buildSidebar(){
       (function(){
         // Embedded in the portal: show a back button above the brand (never overlapping it)
         if(window.parent===window.self)return null;
-        var pb=btn('\u2190 Portal',function(){try{window.parent.postMessage({type:'idf-portal'},'*');}catch(e){}},'rgba(255,255,255,0.10)','rgba(255,255,255,0.75)',{border:'1px solid rgba(255,255,255,0.18)',padding:'6px 12px',fontSize:'11px',borderRadius:'8px',marginBottom:'12px',cursor:'pointer'});
+        var pb=btn('\u2190 Portal',function(){try{window.parent.postMessage({type:'idf-portal'},location.origin);}catch(e){}},'rgba(255,255,255,0.10)','rgba(255,255,255,0.75)',{border:'1px solid rgba(255,255,255,0.18)',padding:'6px 12px',fontSize:'11px',borderRadius:'8px',marginBottom:'12px',cursor:'pointer'});
         pb.addEventListener('mouseenter',function(){pb.style.background='rgba(255,255,255,0.20)';});
         pb.addEventListener('mouseleave',function(){pb.style.background='rgba(255,255,255,0.10)';});
         return pb;
@@ -2001,7 +2001,7 @@ function buildSettingsAdmin(){
   ]);
 }
 
-try{render();}catch(err){document.getElementById('root').innerHTML='<div style="padding:40px;font-family:Georgia,serif"><h2 style="color:#DC2626;margin-bottom:16px">Startup Error</h2><pre style="background:#FEF2F2;padding:16px;border-radius:8px;font-size:12px;overflow:auto">'+err.toString()+'\n\n'+(err.stack||'')+'</pre><div style="margin-top:18px"><a href="#" onclick="try{window.parent.postMessage({type:\'idf-portal\'},\'*\');}catch(e){}return false;" style="color:#2563eb;font-weight:700;font-size:13px">&larr; Return to portal</a></div></div>';}
+try{render();}catch(err){document.getElementById('root').innerHTML='<div style="padding:40px;font-family:Georgia,serif"><h2 style="color:#DC2626;margin-bottom:16px">Startup Error</h2><pre style="background:#FEF2F2;padding:16px;border-radius:8px;font-size:12px;overflow:auto">'+err.toString()+'\n\n'+(err.stack||'')+'</pre><div style="margin-top:18px"><a href="#" onclick="try{window.parent.postMessage({type:\'idf-portal\'},location.origin);}catch(e){}return false;" style="color:#2563eb;font-weight:700;font-size:13px">&larr; Return to portal</a></div></div>';}
 
 </script>
 </body>

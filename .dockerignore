@@ -1,0 +1,9 @@
+**/node_modules
+**/.nuxt
+**/.output
+**/.venv
+**/__pycache__
+**/*.db
+backend/.secret_key
+*.log
+.git

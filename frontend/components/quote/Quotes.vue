@@ -1,23 +1,30 @@
 <script setup lang="ts">
 // Quotations app - native pricing module backed by the server-side engine
-const props = defineProps<{ page?: string }>();
-const emit = defineEmits<{ (e: "nav", k: string): void }>();
+// The URL decides the view: /platform/quotes, /quotes/new, /quotes/<id>, /quotes/<id>/edit
+const props = defineProps<{ routeView?: string; routeId?: string | null }>();
+const router = useRouter();
+const route = useRoute();
 
 const notify = inject<(m: string, t?: string) => void>("notify")!;
+const { confirm } = useConfirm();
 const { request, download } = useApi();
 const { projects, loadAll } = useData();
 const user = useAuth().user;
 
-const view = ref<"list" | "editor" | "detail">("list");
+const view = computed<"list" | "editor" | "detail">(() =>
+  props.routeView === "new" || props.routeView === "edit" ? "editor" : props.routeView === "detail" ? "detail" : "list"
+);
 const quotes = ref<any[]>([]);
 const catalog = ref<any>(null);
 const loading = ref(true);
-const search = ref("");
-const statusFilter = ref("All");
+// list filters live in the URL query: they survive Back/refresh and can be shared
+const qp = (k: string, d: string) => (typeof route.query[k] === "string" ? (route.query[k] as string) : d);
+const search = ref(qp("q", ""));
+const statusFilter = ref(qp("status", "All"));
 
 // editor/detail payload passed to child components
 const editing = ref<any>(null);   // { quoteId?, revisionId?, rev?, status?, meta, items, markupPct, vatPct }
-const detailId = ref<string | null>(null);
+const detailId = computed(() => (view.value === "detail" ? props.routeId || null : null));
 
 const role = computed(() => user.value?.apps?.quotes?.role || user.value?.apps?.facade?.role || "sales");
 const isAdmin = computed(() => user.value?.platformRole === "admin");
@@ -43,11 +50,25 @@ onMounted(async () => {
   if (!projects.value.length) loadAll();
 });
 
+const sortBy = ref(qp("sort", "updated"));
+const listQuery = computed(() => {
+  const q: Record<string, string> = {};
+  if (search.value) q.q = search.value;
+  if (statusFilter.value !== "All") q.status = statusFilter.value;
+  if (sortBy.value !== "updated") q.sort = sortBy.value;
+  return q;
+});
+watch(listQuery, (q) => { if (view.value === "list") router.replace({ query: q }); });
+const SORTS: Record<string, (a: any, b: any) => number> = {
+  updated: (a, b) => (b.updated || 0) - (a.updated || 0),
+  total: (a, b) => (b.total || 0) - (a.total || 0),
+  number: (a, b) => String(b.number).localeCompare(String(a.number)),
+};
 const filtered = computed(() =>
-  (quotes.value || []).filter((q) => {
+  [...(quotes.value || [])].sort(SORTS[sortBy.value]).filter((q) => {
     const s = search.value.toLowerCase();
     const hit =
-      !q ||
+      !s ||
       q.number?.toLowerCase().includes(s) ||
       q.clientName?.toLowerCase().includes(s) ||
       q.projectName?.toLowerCase().includes(s) ||
@@ -70,7 +91,8 @@ const blankItem = (): any => ({
   elements: [], note: "",
 });
 
-const openNew = () => {
+const openNew = () => router.push("/platform/quotes/new");
+const startNew = () => {
   const s = catalog.value?.values?.settings || {};
   editing.value = {
     quoteId: null, revisionId: null, rev: 0, status: "draft",
@@ -79,12 +101,13 @@ const openNew = () => {
     markupPct: s.defaultMarkup ?? 100,
     vatPct: s.vatRate ?? 7.5,
   };
-  view.value = "editor";
 };
 
-const openEdit = async (q: any) => {
+const openEdit = (q: any) => router.push(`/platform/quotes/${q.id}/edit`);
+const startEdit = async (id: string) => {
+  editing.value = null;
   try {
-    const full = await request(`/api/quotes/${q.id}`);
+    const full = await request(`/api/quotes/${id}`);
     const latest = full.latest || { items: [], markupPct: 100, vatPct: 7.5, status: "draft" };
     editing.value = {
       quoteId: full.id, revisionId: latest.id, rev: latest.rev, status: latest.status,
@@ -97,25 +120,30 @@ const openEdit = async (q: any) => {
       items: JSON.parse(JSON.stringify(latest.items || [])),
       markupPct: latest.markupPct, vatPct: latest.vatPct,
     };
-    view.value = "editor";
   } catch (e: any) {
     notify(e.message, "error");
+    router.replace("/platform/quotes");
   }
 };
 
-const openDetail = (id: string) => {
-  detailId.value = id;
-  view.value = "detail";
-};
+const openDetail = (id: string) => router.push(`/platform/quotes/${id}`);
+const backToList = () => router.push({ path: "/platform/quotes", query: listQuery.value });
 
-const backToList = async () => {
-  view.value = "list";
-  editing.value = null;
-  await load();
-};
+// prepare the editor whenever the URL asks for it
+watch(
+  () => [props.routeView, props.routeId, catalog.value] as const,
+  ([v, id, cat], old) => {
+    if (v === "new" && cat && !editing.value?.__new) { startNew(); editing.value.__new = true; }
+    else if (v === "edit" && id && editing.value?.quoteId !== id) startEdit(id);
+    else if (v !== "new" && v !== "edit") editing.value = null;
+    // returning to the list refreshes it (the first load happens on mount)
+    if (old && (v === "list" || !v) && old[0] !== v) load();
+  },
+  { immediate: true }
+);
 
 const del = async (q: any) => {
-  if (!confirm(`Delete ${q.number}? This removes all revisions.`)) return;
+  if (!(await confirm({ title: `Delete ${q.number}?`, message: `All ${q.revisions?.length || 1} revision(s) for ${q.clientName || "this client"} are deleted. This cannot be undone.`, confirmLabel: "Delete quote", danger: true }))) return;
   try {
     await request(`/api/quotes/${q.id}`, { method: "DELETE" });
     notify(`${q.number} deleted`);
@@ -125,15 +153,12 @@ const del = async (q: any) => {
   }
 };
 
-const saveBlob = (blob: Blob, filename: string) => {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
-};
+const { saveBlob } = useApi();
+const rowMenu = (q: any) => [
+  { label: "Edit quote", icon: "edit", onClick: () => openEdit(q) },
+  ...(isAdmin.value ? [{ label: "Delete quote", icon: "trash", danger: true, onClick: () => del(q) }] : []),
+];
+const fmtD = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
 const exporting = ref(false);
 const exportAll = async () => {
@@ -170,78 +195,105 @@ const stats = computed(() => {
   };
 });
 
-// child components emit these
-const saved = async (msg: string) => {
+// child components emit these: after saving, show the quote that was saved
+const saved = async (msg: string, id?: string) => {
   notify(msg);
-  await backToList();
+  editing.value = null;
+  if (id) router.replace(`/platform/quotes/${id}`);
+  else backToList();
 };
-const cancelled = () => backToList();
+const cancelled = () => (props.routeId ? router.push(`/platform/quotes/${props.routeId}`) : backToList());
 </script>
 
 <template>
   <!-- LIST -->
   <div v-if="view === 'list'" class="wrap">
+    <div class="phead">
+      <h1 class="ptitle">Quotations</h1>
+      <button class="btn-primary fab-m" @click="openNew"><UiIcon name="plus" :size="15" /> New quote</button>
+    </div>
+
     <div class="stats">
       <div class="stat"><div class="stat-v">{{ stats.count }}</div><div class="stat-l">Quotes</div></div>
-      <div class="stat"><div class="stat-v">{{ fmtN(stats.pipeline) }}</div><div class="stat-l">Open Pipeline</div></div>
-      <div class="stat"><div class="stat-v">{{ fmtN(stats.wonValue) }}</div><div class="stat-l">Won Value</div></div>
-      <div class="stat"><div class="stat-v">{{ stats.wonCount }}</div><div class="stat-l">Jobs Won</div></div>
+      <div class="stat"><div class="stat-v">{{ fmtN(stats.pipeline) }}</div><div class="stat-l">Open pipeline</div></div>
+      <div class="stat"><div class="stat-v">{{ fmtN(stats.wonValue) }}</div><div class="stat-l">Won value</div></div>
+      <div class="stat"><div class="stat-v">{{ stats.wonCount }}</div><div class="stat-l">Jobs won</div></div>
     </div>
 
     <div class="card">
       <div class="card-head">
-        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
-          <input v-model="search" class="inp search" placeholder="Search number, client, project..." />
-          <select v-model="statusFilter" class="inp" style="width: 130px">
-            <option>All</option><option>draft</option><option>sent</option><option>won</option><option>lost</option>
-          </select>
-          <button class="btn-export" :disabled="exporting || !quotes.length" @click="exportAll">
-            {{ exporting ? "Exporting..." : "⬇ Export" }}
+        <label class="searchw">
+          <UiIcon name="search" :size="14" class="sic" />
+          <input v-model="search" class="inp search" placeholder="Search number, client, project or sales person" aria-label="Search quotes" />
+        </label>
+        <select v-model="statusFilter" class="inp" aria-label="Status">
+          <option value="All">All statuses</option>
+          <option value="draft">Draft</option><option value="sent">Sent</option><option value="won">Won</option><option value="lost">Lost</option>
+        </select>
+        <select v-model="sortBy" class="inp" aria-label="Sort">
+          <option value="updated">Recently updated</option>
+          <option value="total">Highest total</option>
+          <option value="number">Newest number</option>
+        </select>
+        <button class="btn-export" :disabled="exporting || !quotes.length" @click="exportAll">
+          <UiIcon name="download" :size="14" /> {{ exporting ? "Exporting…" : "Export" }}
+        </button>
+      </div>
+      <div class="count">{{ filtered.length === quotes.length ? `${quotes.length} quotes` : `${filtered.length} of ${quotes.length} quotes` }}</div>
+
+      <div v-if="loading && !quotes.length" class="skel-list" aria-busy="true" aria-label="Loading quotations">
+        <div v-for="n in 4" :key="n" class="skel-row"><div class="skel" style="width: 14%" /><div class="skel" style="width: 26%" /><div class="skel" style="width: 18%" /><div class="skel" style="width: 12%" /></div>
+      </div>
+      <div v-else-if="!filtered.length" class="empty">
+        <UiIcon name="file" :size="28" style="color: #64748b; margin-bottom: 8px" />
+        <div>{{ quotes.length ? "No quotes match these filters." : "No quotations yet. Create your first quote to price windows, doors and facades." }}</div>
+      </div>
+      <template v-else>
+        <!-- desktop table -->
+        <div class="tscroll desk">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Number</th><th>Client</th><th>Project</th><th>Sales</th>
+                <th>Status</th><th style="text-align: right">Total</th><th>Updated</th><th><span class="sr">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="q in filtered" :key="q.id" class="row" tabindex="0" @click="openDetail(q.id)" @keydown.enter="openDetail(q.id)">
+                <td class="strong">{{ q.number }}</td>
+                <td>{{ q.clientName || "—" }}</td>
+                <td>{{ q.projectName || "—" }}</td>
+                <td>{{ q.salesPerson || "—" }}</td>
+                <td><span class="chip" :style="{ background: statusChip(q.status).bg, color: statusChip(q.status).fg }">{{ statusChip(q.status).label }}</span></td>
+                <td style="text-align: right" class="strong">{{ fmtN(q.total) }}</td>
+                <td class="dim">{{ fmtD(q.updated) }}</td>
+                <td @click.stop><UiMenu :items="rowMenu(q)" :label="`Actions for ${q.number}`" /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- mobile cards: status and total always visible -->
+        <div class="mcards">
+          <button v-for="q in filtered" :key="q.id" class="mcard" @click="openDetail(q.id)">
+            <span class="mc-top">
+              <span class="strong">{{ q.number }}</span>
+              <span class="chip" :style="{ background: statusChip(q.status).bg, color: statusChip(q.status).fg }">{{ statusChip(q.status).label }}</span>
+            </span>
+            <span class="mc-client">{{ q.clientName || "No client name" }}</span>
+            <span class="mc-bot">
+              <span class="dim">{{ q.salesPerson || "—" }} · {{ fmtD(q.updated) }}</span>
+              <span class="strong">{{ fmtN(q.total) }}</span>
+            </span>
           </button>
         </div>
-        <button class="btn-primary" @click="openNew">+ New Quote</button>
-      </div>
-
-      <div v-if="loading" class="empty">Loading quotations...</div>
-      <div v-else-if="!filtered.length" class="empty">
-        <div style="font-size: 30px; margin-bottom: 8px">🧾</div>
-        No quotations yet. Create your first quote to price aluminium windows, doors and facades.
-      </div>
-      <div v-else class="tscroll">
-        <table class="tbl">
-          <thead>
-            <tr>
-              <th>Number</th><th>Client</th><th>Project</th><th>Sales</th>
-              <th>Status</th><th style="text-align: right">Total</th><th>Updated</th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="q in filtered" :key="q.id" class="row" @click="openDetail(q.id)">
-              <td class="mono strong">{{ q.number }}</td>
-              <td>{{ q.clientName || "N/A" }}</td>
-              <td>{{ q.projectName || "N/A" }}</td>
-              <td>{{ q.salesPerson || "N/A" }}</td>
-              <td>
-                <span class="chip" :style="{ background: statusChip(q.status).bg, color: statusChip(q.status).fg }">
-                  {{ statusChip(q.status).label }}
-                </span>
-              </td>
-              <td style="text-align: right" class="strong">{{ fmtN(q.total) }}</td>
-              <td class="dim">{{ new Date(q.updated).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) }}</td>
-              <td style="white-space: nowrap">
-                <button class="btn-sm" @click.stop="openEdit(q)">Edit</button>
-                <button v-if="isAdmin" class="btn-sm danger" @click.stop="del(q)">Delete</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      </template>
     </div>
   </div>
 
   <!-- EDITOR -->
   <QuoteEditor
-    v-else-if="view === 'editor' && catalog"
+    v-else-if="view === 'editor' && catalog && editing"
+    :key="editing.quoteId || 'new'"
     :editing="editing"
     :catalog="catalog"
     :projects="projects"
@@ -265,33 +317,52 @@ const cancelled = () => backToList();
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
 .stat { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px 16px; }
 .stat-v { font-size: 17px; font-weight: 800; color: #0f172a; letter-spacing: -.3px; }
-.stat-l { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #94a3b8; margin-top: 3px; }
+.stat-l { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: #64748b; margin-top: 3px; }
 .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; border-bottom: 1px solid #f1f5f9; flex-wrap: wrap; }
-.search { width: 260px; }
+
 .inp { padding: 8px 10px; border: 1px solid #dde4ec; border-radius: 8px; font-family: inherit; font-size: 12.5px; background: #fff; outline: none; }
-.inp:focus { border-color: #f59e0b; }
-.btn-primary { background: linear-gradient(135deg, #f59e0b, #ea580c); color: #fff; border: none; border-radius: 8px; padding: 9px 16px; font-family: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
-.btn-primary:hover { filter: brightness(1.05); }
-.btn-export { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 14px; font-family: inherit; font-size: 12.5px; font-weight: 700; color: #475569; cursor: pointer; }
+.inp:focus { border-color: #93c5fd; }
+.phead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 10px; }
+.ptitle { font-size: 20px; font-weight: 800; color: #0f172a; }
+.searchw { position: relative; flex: 1; min-width: 220px; display: block; }
+.sic { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b; }
+.searchw .inp { width: 100%; padding-left: 32px; }
+.count { font-size: 12px; color: #64748b; padding: 8px 16px 0; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.mcards { display: none; }
+.mcard { display: grid; gap: 4px; width: 100%; text-align: left; padding: 12px 16px; border: none; border-top: 1px solid #f1f5f9; background: #fff; font: inherit; color: inherit; cursor: pointer; }
+.mc-top, .mc-bot { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.mc-client { font-size: 13px; color: #334155; }
+.btn-primary { display: inline-flex; align-items: center; gap: 6px; background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 9px 16px; font-family: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.btn-primary:hover { background: var(--primary-hover); }
+.btn-export { display: inline-flex; align-items: center; gap: 6px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 14px; font-family: inherit; font-size: 12.5px; font-weight: 700; color: #475569; cursor: pointer; }
 .btn-export:hover:not(:disabled) { border-color: #16a34a; color: #15803d; }
 .btn-export:disabled { opacity: .5; cursor: default; }
-.empty { padding: 46px 20px; text-align: center; color: #94a3b8; font-size: 13px; }
+.skel-list { padding: 8px 16px 14px; }
+.skel-row { display: flex; gap: 24px; padding: 12px 0; border-bottom: 1px solid #f1f5f9; }
+.empty { padding: 46px 20px; text-align: center; color: #64748b; font-size: 13px; }
 .tscroll { overflow-x: auto; }
 .tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.tbl th { text-align: left; padding: 10px 14px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: #94a3b8; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
+.tbl th { text-align: left; padding: 10px 14px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: #64748b; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
 .tbl td { padding: 11px 14px; border-bottom: 1px solid #f8fafc; color: #334155; }
 .row { cursor: pointer; }
-.row:hover { background: #fffbeb; }
+.row:hover, .row:focus-visible { background: #f8fafc; }
 .mono { font-family: ui-monospace, "Courier New", monospace; }
 .strong { font-weight: 700; color: #0f172a; }
-.dim { color: #94a3b8; font-size: 11.5px; }
+.dim { color: #64748b; font-size: 11.5px; }
 .chip { border-radius: 20px; padding: 3px 10px; font-size: 10.5px; font-weight: 700; }
 .btn-sm { padding: 5px 10px; border-radius: 6px; border: 1px solid #e2e8f0; background: #fff; color: #475569; font-family: inherit; font-size: 11px; font-weight: 600; cursor: pointer; margin-right: 5px; }
-.btn-sm:hover { border-color: #f59e0b; color: #b45309; }
+.btn-sm:hover { border-color: #cbd5e1; }
 .btn-sm.danger:hover { border-color: #ef4444; color: #ef4444; }
 @media (max-width: 860px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
-  .wrap { padding: 14px; }
+  .wrap { padding: 14px 14px 90px; }
+}
+@media (max-width: 640px) {
+  .desk { display: none; }
+  .mcards { display: block; }
+  .card-head .inp:not(.search) { flex: 1; }
+  .fab-m { position: fixed; right: 16px; bottom: 18px; z-index: 30; border-radius: 999px; padding: 13px 18px; box-shadow: 0 8px 24px rgba(37,99,235,.35); }
 }
 </style>

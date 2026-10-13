@@ -10,25 +10,29 @@ echo "  Interdec Platform — starting services"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # ---------- Backend ----------
-cd "$ROOT/backend"
+cd "$ROOT/backend" || exit 1
+PY_SYS="$(command -v python3 || command -v python)"
+if [ -z "$PY_SYS" ]; then echo "❌ Python 3 not found"; exit 1; fi
 if [ ! -d ".venv" ]; then
   echo "[backend] creating venv…"
-  python3 -m venv .venv 2>/dev/null || true
+  "$PY_SYS" -m venv .venv || { echo "❌ could not create venv"; exit 1; }
 fi
+# Use the venv's interpreter (Linux/macOS: bin/, Windows Git Bash: Scripts/)
+if [ -x ".venv/bin/python" ]; then PY=".venv/bin/python"; else PY=".venv/Scripts/python.exe"; fi
+
 echo "[backend] installing deps…"
-python3 -m pip install -q fastapi "uvicorn[standard]" sqlalchemy pydantic \
-  "python-jose[cryptography]" "passlib[bcrypt]" "bcrypt==4.0.1" python-multipart 2>/dev/null || true
+"$PY" -m pip install -q -r "$ROOT/requirements.txt" || { echo "❌ pip install failed"; exit 1; }
 
 echo "[backend] starting FastAPI on :8100…"
 pkill -f "uvicorn app.main" 2>/dev/null
 sleep 1
-nohup python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8100 > "$ROOT/backend.log" 2>&1 &
+nohup "$PY" -m uvicorn app.main:app --host 127.0.0.1 --port 8100 > "$ROOT/backend.log" 2>&1 &
 
 # ---------- Frontend ----------
-cd "$ROOT/frontend"
+cd "$ROOT/frontend" || exit 1
 if [ ! -d "node_modules" ]; then
   echo "[frontend] installing deps (first run, ~2 min)…"
-  npm install --no-audit --no-fund
+  npm install --no-audit --no-fund || { echo "❌ npm install failed"; exit 1; }
 fi
 
 echo "[frontend] starting Nuxt on :3000…"
@@ -49,9 +53,7 @@ for i in $(seq 1 45); do
     echo "   • API:       http://localhost:8100/api/health"
     echo "   • API docs:  http://localhost:8100/docs"
     echo ""
-    echo "   Login: Joshua.n@interdecng.com / 123456  (platform admin)"
-    echo "          sales@interdecng.com   / sales123  (sales + user)"
-    echo "          viewer@interdecng.com  / viewer123 (reports viewer)"
+    echo "   Demo logins are listed in README.md — change these passwords before real use."
     exit 0
   fi
 done
