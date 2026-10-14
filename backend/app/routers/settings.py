@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from .. import models, auth
+from .. import models, auth, mailer, eta_alerts
 from ..activity import log_action
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -72,3 +72,37 @@ def put_fx(body: FxUpdate, user: models.User = Depends(auth.get_current_user), d
     log_action(db, user, "settings.fx", "Updated exchange rates", "💱")
     db.commit()
     return _out(row)
+
+
+
+# ---------------------------------------------------------------------------
+# Email (SMTP is configured with environment variables; see mailer.py)
+# ---------------------------------------------------------------------------
+
+@router.get("/email")
+def email_status(user: models.User = Depends(auth.get_current_user)):
+    return mailer.status()
+
+
+@router.post("/email/test")
+def email_test(user: models.User = Depends(auth.require_admin), db: Session = Depends(get_db)):
+    ok, err = mailer.send(db, [user.email], "Interdec: test email",
+                          "<p>Email from Interdec is working. ETA alerts will arrive like this one.</p>",
+                          "Email from Interdec is working. ETA alerts will arrive like this one.", kind="test")
+    db.commit()
+    if not ok:
+        raise HTTPException(503 if "set up" in err else 502, err)
+    return {"ok": True, "sentTo": user.email}
+
+
+@router.get("/email/log")
+def email_log(user: models.User = Depends(auth.require_admin), db: Session = Depends(get_db)):
+    rows = db.query(models.EmailLog).order_by(models.EmailLog.ts.desc()).limit(100).all()
+    return [{"to": r.to, "subject": r.subject, "kind": r.kind, "status": r.status, "error": r.error,
+             "shipmentId": r.shipment_id, "ts": r.ts} for r in rows]
+
+
+@router.post("/eta-alerts/run")
+def run_eta_alerts(user: models.User = Depends(auth.require_admin), db: Session = Depends(get_db)):
+    """Run the ETA reminder check now instead of waiting for the next scheduled one."""
+    return eta_alerts.run_check(db)

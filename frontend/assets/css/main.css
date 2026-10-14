@@ -192,3 +192,8 @@ input[type="checkbox"], input[type="radio"] { width: 18px; height: 18px; accent-
   .skip, .side-close { min-height: 44px; min-width: 44px; }
 }
 .item-tog, .v-meta a, .s-meta a, .v-meta .mi, .s-meta .mi { min-height: 24px; }
+
+/* page header action row + detail top bar (back link left, actions right) */
+.head-acts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.topbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 14px; }
+.topbar .back-link.back-link { margin-bottom: 0; }

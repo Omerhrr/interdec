@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Reports page - 5 report types + exchange rates + HTML export (mirrors original)
-const { shipments, vendors, shippers, projects, vendorName, shipperName, projectName } = useData();
+const { shipments, vendors, shippers, projects, vendorName, shipperName, projectName, agentName, costUsd, landedUsd } = useData();
 const notify = inject<(m: string, t?: string) => void>("notify")!;
 const { COMPANIES, STATUS_ORDER, STATUS_LABELS, STATUS_COLORS, fmtDate, fmtEta } = useConstants();
 
@@ -20,138 +20,31 @@ const reportMeta: Record<string, { icon: string; title: string; desc: string; co
   company: { icon: "grid", title: "Shipments by Company", desc: "Facade, Davinci and Doortec: shipments and total values", color: "#f59e0b" },
   vendor: { icon: "factory", title: "Shipments by Vendor", desc: "All shipments grouped by vendor with total order values", color: "#10b981" },
   shipper: { icon: "ship", title: "Shipments by Shipper", desc: "Shipper usage and freight costs paid", color: "#06b6d4" },
+  costs: { icon: "coins", title: "Landed cost", desc: "Goods + shipping + clearing per shipment, and what's still unpaid", color: "#0f766e" },
+  budget: { icon: "trophy", title: "Budget vs actual", desc: "Each project's contract value (won quotes) against what its imports cost", color: "#16a34a" },
+  payables: { icon: "alert", title: "Payables", desc: "Everything still owed: vendor balances, unpaid shipping and clearing", color: "#dc2626" },
 };
-
-// Escape user-entered text (names, descriptions) before building report HTML
-const esc = (v: any) =>
-  String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-
-const tableRow = (cells: string[], head = false) =>
-  `<tr>${cells
-    .map(
-      (c) =>
-        `<${head ? "th" : "td"} style="padding:10px 14px;text-align:left;border-bottom:1px solid #e2e8f0;${head ? "font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;background:#f8fafc;" : ""}">${esc(c)}</${head ? "th" : "td"}>`
-    )
-    .join("")}</tr>`;
-
-const buildHtml = (type: string) => {
-  const titles: Record<string, string> = {
-    status: "Shipments by Status", project: "Shipments by Project", company: "Shipments by Company",
-    vendor: "Shipments by Vendor", shipper: "Shipments by Shipper",
-  };
-  const date = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-  let body = "";
-
-  if (type === "status") {
-    const total = totalUsd(shipments.value);
-    body += `<div style="display:flex;gap:16px;margin-bottom:24px">${STATUS_ORDER.map((st) => {
-      const list = shipments.value.filter((s) => s.status === st);
-      return `<div style="flex:1;padding:16px;border-radius:10px;border-top:4px solid ${STATUS_COLORS[st]};background:${STATUS_COLORS[st]}08">
-        <div style="font-size:28px;font-weight:800;color:${STATUS_COLORS[st]}">${list.length}</div>
-        <div style="font-size:12px;font-weight:600;color:#475569">${STATUS_LABELS[st]}</div>
-        <div style="font-size:13px;color:#64748b;margin-top:4px">${fmtUsd(totalUsd(list))}</div></div>`;
-    }).join("")}</div>`;
-    body += `<p style="color:#64748b;font-size:13px;margin-bottom:20px">Total shipments: <strong>${shipments.value.length}</strong> · Total value: <strong>${fmtUsd(total)}</strong></p>`;
-    STATUS_ORDER.forEach((st) => {
-      const list = shipments.value.filter((s) => s.status === st);
-      if (!list.length) return;
-      body += `<h2 style="color:${STATUS_COLORS[st]};font-size:14px;margin:20px 0 8px">● ${STATUS_LABELS[st]} (${list.length})</h2>
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">
-        ${tableRow(["Ref", "Company", "Description", "Vendor", "Value"], true)}
-        ${list.map((s) => tableRow([s.ref, COMPANIES.find((c) => c.id === s.companyId)?.name || "", s.description, vendorName(s.vendorId), `${s.currency || "USD"} ${(s.value || 0).toLocaleString()}`])).join("")}
-        </table>`;
-    });
-  } else if (type === "project") {
-    const total = totalUsd(shipments.value);
-    body += `<p style="color:#64748b;font-size:13px;margin-bottom:20px">Total: <strong>${shipments.value.length} shipments</strong> · Value: <strong>${fmtUsd(total)}</strong></p>`;
-    projects.value.forEach((p) => {
-      const list = shipments.value.filter((s) => s.projectId === p.id);
-      if (!list.length) return;
-      body += `<h2 style="font-size:14px;margin:20px 0 4px">${esc(p.name)} <span style="color:#64748b;font-weight:400;font-size:12px">${esc(p.client)}</span></h2>
-        <p style="font-size:13px;color:#475569;margin:0 0 8px">${fmtUsd(totalUsd(list))} · ${list.length} shipments</p>
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">
-        ${tableRow(["Ref", "Company", "Description", "Status", "Value"], true)}
-        ${list.map((s) => tableRow([s.ref, COMPANIES.find((c) => c.id === s.companyId)?.name || "", s.description, STATUS_LABELS[s.status], `${s.currency || "USD"} ${(s.value || 0).toLocaleString()}`])).join("")}
-        </table>`;
-    });
-    const stock = shipments.value.filter((s) => !s.projectId);
-    if (stock.length) {
-      body += `<h2 style="font-size:14px;margin:20px 0 4px">General stock</h2>
-        <p style="font-size:13px;color:#475569;margin:0 0 8px">${fmtUsd(totalUsd(stock))} · ${stock.length} shipments</p>
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-        ${tableRow(["Ref", "Company", "Description", "Status", "Value"], true)}
-        ${stock.map((s) => tableRow([s.ref, COMPANIES.find((c) => c.id === s.companyId)?.name || "", s.description, STATUS_LABELS[s.status], `${s.currency || "USD"} ${(s.value || 0).toLocaleString()}`])).join("")}
-        </table>`;
-    }
-  } else if (type === "company") {
-    COMPANIES.forEach((c) => {
-      const list = shipments.value.filter((s) => s.companyId === c.id);
-      if (!list.length) return;
-      const active = list.filter((s) => s.status !== "completed").length;
-      body += `<h2 style="font-size:14px;margin:20px 0 4px;color:${c.color}">${c.name}</h2>
-        <p style="font-size:13px;color:#475569;margin:0 0 8px">${fmtUsd(totalUsd(list))} · ${list.length} shipments (${active} active)</p>
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">
-        ${tableRow(["Ref", "Description", "Status", "Project", "Value"], true)}
-        ${list.map((s) => tableRow([s.ref, s.description, STATUS_LABELS[s.status], projectName(s.projectId), `${s.currency || "USD"} ${(s.value || 0).toLocaleString()}`])).join("")}
-        </table>`;
-    });
-  } else if (type === "vendor") {
-    vendors.value.forEach((v) => {
-      const list = shipments.value.filter((s) => s.vendorId === v.id);
-      if (!list.length) return;
-      body += `<h2 style="font-size:14px;margin:20px 0 4px">${esc(v.name)} <span style="color:#64748b;font-weight:400;font-size:12px">${esc(v.country)} · ${esc(v.category)}</span></h2>
-        <p style="font-size:13px;color:#475569;margin:0 0 8px">${fmtUsd(totalUsd(list))} · ${list.length} shipments</p>
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">
-        ${tableRow(["Ref", "Company", "Description", "Status", "Value"], true)}
-        ${list.map((s) => tableRow([s.ref, COMPANIES.find((c) => c.id === s.companyId)?.name || "", s.description, STATUS_LABELS[s.status], `${s.currency || "USD"} ${(s.value || 0).toLocaleString()}`])).join("")}
-        </table>`;
-    });
-  } else if (type === "shipper") {
-    shippers.value.forEach((sp) => {
-      const list = shipments.value.filter((s) => s.shipperId === sp.id);
-      if (!list.length) return;
-      body += `<h2 style="font-size:14px;margin:20px 0 4px">${esc(sp.name)} <span style="color:#64748b;font-weight:400;font-size:12px">${esc(sp.country)} · ${esc(sp.category)}</span></h2>
-        <p style="font-size:13px;color:#475569;margin:0 0 8px">${fmtUsd(totalUsd(list))} · ${list.length} shipments</p>
-        <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:8px">
-        ${tableRow(["Ref", "Company", "Description", "Method", "ETA", "Value"], true)}
-        ${list.map((s) => tableRow([s.ref, COMPANIES.find((c) => c.id === s.companyId)?.name || "", s.description, s.shipMethod || "N/A", fmtEta(s.eta) || "N/A", `${s.currency || "USD"} ${(s.value || 0).toLocaleString()}`])).join("")}
-        </table>`;
-    });
+const { request } = useApi();
+const budgets = ref<Record<string, any>>({});
+watch(() => activeReport.value, (r) => { if (r === "budget") request("/api/projects/budgets").then((b: any) => (budgets.value = b)).catch(() => {}); });
+const bRows = computed(() => projects.value.map((p: any) => ({ p, b: budgets.value[p.id] })).filter((x: any) => x.b));
+const nShort = (n: number) => { const a = Math.abs(n || 0); return (n < 0 ? "−₦" : "₦") + (a >= 1e9 ? (a / 1e9).toFixed(2) + "B" : a >= 1e6 ? (a / 1e6).toFixed(1) + "M" : a >= 1e3 ? Math.round(a / 1e3) + "K" : Math.round(a)); };
+const bSum = (k: string) => bRows.value.reduce((a: number, x: any) => a + (x.b[k] || 0), 0);
+// payables: vendor balances + unpaid shipping/clearing
+const payRows = computed(() => {
+  const out: any[] = [];
+  for (const s of shipments.value as any[]) {
+    if (s.vendorBalance > 0.005 && s.value) out.push({ s, what: "Vendor", to: vendorName(s.vendorId), amt: `${s.currency} ${Number(s.vendorBalance).toLocaleString()}`, usd: s.vendorBalance * (rates.value[s.currency] ?? 1), due: s.vendorPaymentDue });
+    if (s.shippingCost?.total && !s.shippingCost.paid) out.push({ s, what: "Shipping", to: shipperName(s.shipperId), amt: `${s.shippingCost.currency} ${Number(s.shippingCost.total).toLocaleString()}`, usd: costUsd(s.shippingCost), due: true });
+    if (s.clearingCost?.total && !s.clearingCost.paid) out.push({ s, what: "Clearing", to: agentName(s.clearingAgentId), amt: `${s.clearingCost.currency} ${Number(s.clearingCost.total).toLocaleString()}`, usd: costUsd(s.clearingCost), due: true });
   }
+  return out.sort((a, b) => Number(b.due) - Number(a.due) || b.usd - a.usd);
+});
+// shipped goods and their costs (landed cost report)
+const costRows = computed(() => shipments.value.filter((s: any) => ["in_transit", "completed"].includes(s.status) || s.shippingCost || s.clearingCost));
+const costSum = (f: (s: any) => number) => costRows.value.reduce((a: number, s: any) => a + f(s), 0);
+const paidChip = (c: any) => (!c?.total ? "" : c.paid ? "Paid" : "Unpaid");
 
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Interdec ${titles[type]}</title></head>
-  <body style="font-family:'DM Sans',system-ui,sans-serif;color:#0f172a;max-width:900px;margin:0 auto;padding:40px 24px">
-    <h1 style="font-size:22px;margin:0 0 4px">${titles[type]}</h1>
-    <p style="color:#64748b;font-size:12px;margin:0 0 12px">Interdec Platform · Generated ${date} · Values converted to USD</p>
-    <p style="color:#64748b;font-size:11px;margin:0 0 24px">Exchange rates (${esc(fxLabel.value)}): ${Object.entries(rates.value).filter(([k]) => k !== "USD").map(([k, v]) => `${k}=${v}`).join(" · ")}</p>
-    ${body}
-  </body></html>`;
-};
-
-// "Export PDF": open the report in a print window so it can be saved as PDF
-// (the browser's Save as PDF). Falls back to downloading the HTML file when
-// pop-ups are blocked.
-const exportReport = (type: string) => {
-  const html = buildHtml(type);
-  const win = window.open("", "_blank");
-  if (win) {
-    win.document.open();
-    win.document.write(html.replace("</body>", "<script>window.onload=function(){setTimeout(function(){window.print()},250)}<\/script></body>"));
-    win.document.close();
-    notify("Report opened - choose 'Save as PDF' in the print dialog");
-    return;
-  }
-  const blob = new Blob([html], { type: "text/html" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `interdec-report-${type}-${new Date().toISOString().slice(0, 10)}.html`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 300);
-  notify("Pop-ups are blocked, so the report was downloaded as HTML");
-};
 </script>
 
 <template>
@@ -160,6 +53,7 @@ const exportReport = (type: string) => {
       <h1 class="ph">Reports</h1>
       <div style="display: flex; gap: 8px; align-items: center">
         <button class="btn btn-secondary btn-sm" @click="ratesModal = true"><UiIcon name="coins" :size="14" /> Exchange rates</button>
+        <IfExportMenu v-if="!activeReport" kind="report" :params="{ type: 'all' }" label="Export all reports" />
         <button v-if="activeReport" class="btn btn-secondary btn-sm" @click="activeReport = null">← Choose Report</button>
       </div>
     </div>
@@ -194,7 +88,7 @@ const exportReport = (type: string) => {
             {{ shipments.length }} shipments · Total value: <strong class="mono" style="color: #0f172a">{{ fmtUsd(totalUsd(shipments)) }}</strong>
           </p>
         </div>
-        <button class="btn btn-accent btn-sm" @click="exportReport('status')"><UiIcon name="print" :size="14" /> Export PDF</button>
+        <IfExportMenu kind="report" :params="{ type: 'status' }" label="Export report" />
       </div>
       <div class="stat4">
         <div v-for="st in STATUS_ORDER" :key="st" class="stat4-card" :style="{ borderTop: `3px solid ${STATUS_COLORS[st]}` }">
@@ -231,7 +125,7 @@ const exportReport = (type: string) => {
           <h2 style="margin: 0; font-size: 17px; font-weight: 700">Shipments by Project</h2>
           <p style="margin: 4px 0 0; font-size: 12.5px; color: #64748b">{{ projects.length }} projects · {{ shipments.length }} shipments · {{ fmtUsd(totalUsd(shipments)) }}</p>
         </div>
-        <button class="btn btn-accent btn-sm" @click="exportReport('project')"><UiIcon name="print" :size="14" /> Export PDF</button>
+        <IfExportMenu kind="report" :params="{ type: 'project' }" label="Export report" />
       </div>
       <div v-for="p in projects" :key="p.id" style="margin-bottom: 18px">
         <h3 style="font-size: 14px; margin: 0 0 4px">{{ p.name }} <span style="color: #64748b; font-weight: 400; font-size: 12px">{{ p.client }}</span></h3>
@@ -276,7 +170,7 @@ const exportReport = (type: string) => {
           <h2 style="margin: 0; font-size: 17px; font-weight: 700">Shipments by Company</h2>
           <p style="margin: 4px 0 0; font-size: 12.5px; color: #64748b">Facade, Davinci, Doortec · {{ fmtUsd(totalUsd(shipments)) }}</p>
         </div>
-        <button class="btn btn-accent btn-sm" @click="exportReport('company')"><UiIcon name="print" :size="14" /> Export PDF</button>
+        <IfExportMenu kind="report" :params="{ type: 'company' }" label="Export report" />
       </div>
       <div v-for="c in COMPANIES" :key="c.id" style="margin-bottom: 18px">
         <h3 :style="{ fontSize: '14px', margin: '0 0 4px', color: c.color }">{{ c.name }}</h3>
@@ -307,7 +201,7 @@ const exportReport = (type: string) => {
           <h2 style="margin: 0; font-size: 17px; font-weight: 700">Shipments by Vendor</h2>
           <p style="margin: 4px 0 0; font-size: 12.5px; color: #64748b">{{ vendors.length }} vendors · {{ fmtUsd(totalUsd(shipments)) }}</p>
         </div>
-        <button class="btn btn-accent btn-sm" @click="exportReport('vendor')"><UiIcon name="print" :size="14" /> Export PDF</button>
+        <IfExportMenu kind="report" :params="{ type: 'vendor' }" label="Export report" />
       </div>
       <div v-for="v in vendors" :key="v.id" style="margin-bottom: 18px">
         <template v-if="shipments.filter((s) => s.vendorId === v.id).length">
@@ -336,7 +230,7 @@ const exportReport = (type: string) => {
           <h2 style="margin: 0; font-size: 17px; font-weight: 700">Shipments by Shipper</h2>
           <p style="margin: 4px 0 0; font-size: 12.5px; color: #64748b">{{ shippers.length }} shippers · {{ fmtUsd(totalUsd(shipments)) }}</p>
         </div>
-        <button class="btn btn-accent btn-sm" @click="exportReport('shipper')"><UiIcon name="print" :size="14" /> Export PDF</button>
+        <IfExportMenu kind="report" :params="{ type: 'shipper' }" label="Export report" />
       </div>
       <div v-for="sp in shippers" :key="sp.id" style="margin-bottom: 18px">
         <template v-if="shipments.filter((s) => s.shipperId === sp.id).length">
@@ -359,11 +253,106 @@ const exportReport = (type: string) => {
       </div>
     </div>
 
+    <!-- ============ LANDED COST ============ -->
+    <div v-else-if="activeReport === 'costs'">
+      <div class="r-head">
+        <div>
+          <h2 style="margin: 0; font-size: 17px; font-weight: 700">Landed cost</h2>
+          <p style="margin: 4px 0 0; font-size: 12.5px; color: #64748b">{{ costRows.length }} shipped shipments · landed <strong class="mono" style="color: #0f172a">{{ fmtUsd(costSum(landedUsd)) }}</strong></p>
+        </div>
+        <IfExportMenu kind="report" :params="{ type: 'costs' }" label="Export report" />
+      </div>
+      <div class="stat4">
+        <div class="stat4-card" style="border-top: 3px solid #64748b"><div class="mono" style="font-size: 18px; font-weight: 800">{{ fmtUsd(costSum(toUsd)) }}</div><div style="font-size: 12px; color: #475569; font-weight: 600">Goods</div></div>
+        <div class="stat4-card" style="border-top: 3px solid #06b6d4"><div class="mono" style="font-size: 18px; font-weight: 800">{{ fmtUsd(costSum((s) => costUsd(s.shippingCost))) }}</div><div style="font-size: 12px; color: #475569; font-weight: 600">Shipping</div></div>
+        <div class="stat4-card" style="border-top: 3px solid #8b5cf6"><div class="mono" style="font-size: 18px; font-weight: 800">{{ fmtUsd(costSum((s) => costUsd(s.clearingCost))) }}</div><div style="font-size: 12px; color: #475569; font-weight: 600">Clearing</div></div>
+        <div class="stat4-card" style="border-top: 3px solid #0f766e"><div class="mono" style="font-size: 18px; font-weight: 800; color: #0f766e">{{ fmtUsd(costSum(landedUsd)) }}</div><div style="font-size: 12px; color: #475569; font-weight: 600">Landed cost</div></div>
+      </div>
+      <div style="overflow-x: auto">
+        <table class="r-table">
+          <thead><tr><th>Ref</th><th>Description</th><th>Clearing agent</th><th style="text-align: right">Goods</th><th style="text-align: right">Shipping</th><th style="text-align: right">Clearing</th><th style="text-align: right">Landed</th></tr></thead>
+          <tbody>
+            <tr v-for="s in costRows" :key="s.id">
+              <td class="mono" style="color: #3b82f6; font-weight: 700">{{ s.ref }}</td>
+              <td>{{ s.description }}</td>
+              <td>{{ s.clearingAgentId ? agentName(s.clearingAgentId) : "—" }}</td>
+              <td class="mono" style="text-align: right">{{ fmtUsd(toUsd(s)) }}</td>
+              <td class="mono" style="text-align: right">
+                <template v-if="s.shippingCost?.total">{{ fmtUsd(costUsd(s.shippingCost)) }} <span class="pc" :class="{ un: !s.shippingCost.paid }">{{ paidChip(s.shippingCost) }}</span></template>
+                <span v-else style="color: #b45309">to record</span>
+              </td>
+              <td class="mono" style="text-align: right">
+                <template v-if="s.clearingCost?.total">{{ fmtUsd(costUsd(s.clearingCost)) }} <span class="pc" :class="{ un: !s.clearingCost.paid }">{{ paidChip(s.clearingCost) }}</span></template>
+                <span v-else style="color: #b45309">to record</span>
+              </td>
+              <td class="mono" style="text-align: right; font-weight: 800">{{ fmtUsd(landedUsd(s)) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============ BUDGET VS ACTUAL ============ -->
+    <div v-else-if="activeReport === 'budget'">
+      <div class="r-head">
+        <div>
+          <h2 style="margin: 0; font-size: 17px; font-weight: 700">Budget vs actual</h2>
+          <p style="margin: 4px 0 0; font-size: 12.5px; color: #64748b">Contract {{ nShort(bSum("contract")) }} · spent {{ nShort(bSum("spent")) }} · margin {{ nShort(bSum("contract") - bSum("spent")) }}</p>
+        </div>
+        <IfExportMenu kind="report" :params="{ type: 'budget' }" label="Export report" />
+      </div>
+      <div style="overflow-x: auto">
+        <table class="r-table">
+          <thead><tr><th>Project</th><th>Won quotes</th><th style="text-align: right">Contract</th><th style="text-align: right">Spent</th><th style="text-align: right">Margin</th><th style="text-align: right">Owed to vendors</th></tr></thead>
+          <tbody>
+            <tr v-for="x in bRows" :key="x.p.id">
+              <td><strong>{{ x.p.name }}</strong><div style="font-size: 11.5px; color: #64748b">{{ x.p.client }}</div></td>
+              <td class="mono" style="font-size: 12px">{{ x.b.wonQuotes.map((q: any) => q.number).join(", ") || "—" }}</td>
+              <td class="mono" style="text-align: right">{{ x.b.contract ? nShort(x.b.contract) : "—" }}</td>
+              <td class="mono" style="text-align: right">{{ nShort(x.b.spent) }}<div v-if="x.b.usedPct !== null" style="font-size: 11px; color: #64748b">{{ x.b.usedPct }}%</div></td>
+              <td class="mono" style="text-align: right; font-weight: 800" :style="{ color: !x.b.contract ? '#64748b' : x.b.margin < 0 ? '#b91c1c' : '#047857' }">{{ x.b.contract ? `${nShort(x.b.margin)} (${x.b.marginPct}%)` : "—" }}</td>
+              <td class="mono" style="text-align: right" :style="{ color: x.b.vendorOwed > 0 ? '#b45309' : undefined }">{{ nShort(x.b.vendorOwed) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ============ PAYABLES ============ -->
+    <div v-else-if="activeReport === 'payables'">
+      <div class="r-head">
+        <div>
+          <h2 style="margin: 0; font-size: 17px; font-weight: 700">Payables</h2>
+          <p style="margin: 4px 0 0; font-size: 12.5px; color: #64748b">{{ payRows.length }} unpaid items · {{ fmtUsd(payRows.reduce((a, r) => a + r.usd, 0)) }} · due now {{ fmtUsd(payRows.filter((r) => r.due).reduce((a, r) => a + r.usd, 0)) }}</p>
+        </div>
+        <IfExportMenu kind="report" :params="{ type: 'payables' }" label="Export report" />
+      </div>
+      <p v-if="!payRows.length" class="r-empty">Nothing owed. Everything is paid.</p>
+      <div v-else style="overflow-x: auto">
+        <table class="r-table">
+          <thead><tr><th>Shipment</th><th>Owed for</th><th>To</th><th style="text-align: right">Amount</th><th style="text-align: right">USD</th><th></th></tr></thead>
+          <tbody>
+            <tr v-for="(r, i) in payRows" :key="i">
+              <td class="mono" style="color: #3b82f6; font-weight: 700">{{ r.s.ref }}</td>
+              <td>{{ r.what }}</td>
+              <td>{{ r.to }}</td>
+              <td class="mono" style="text-align: right">{{ r.amt }}</td>
+              <td class="mono" style="text-align: right; font-weight: 700">{{ fmtUsd(r.usd) }}</td>
+              <td><span v-if="r.due" class="pc un">Due now</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <IfFxRatesModal v-if="ratesModal" @close="ratesModal = false" />
   </div>
 </template>
 
 <style scoped>
+.r-empty { font-size: 13px; color: #047857; background: #ecfdf5; border-radius: 8px; padding: 12px; }
+.pc { font-family: inherit; font-size: 10px; font-weight: 800; border-radius: 20px; padding: 1px 6px; background: #dcfce7; color: #166534; margin-left: 4px; }
+.pc.un { background: #fef3c7; color: #92400e; }
 .page { max-width: 1100px; margin: 0 auto; padding: 22px 26px; animation: fadeIn .3s; }
 .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; flex-wrap: wrap; gap: 10px; }
 .ph { font-size: 20px; font-weight: 800; }

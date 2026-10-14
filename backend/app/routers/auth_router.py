@@ -57,3 +57,39 @@ def change_password(body: dict, db: Session = Depends(get_db),
     log_action(db, user, "auth.password_changed", f"{user.name} changed their password", "🔑")
     db.commit()
     return {"ok": True}
+
+
+
+# ---------------------------------------------------------------------------
+# My email notification settings
+# ---------------------------------------------------------------------------
+
+@router.get("/me/notifications")
+def my_notifications(user: models.User = Depends(auth.get_current_user)):
+    from .. import notify_mail, mailer
+    return {"prefs": notify_mail.prefs(user), "email": user.email, "emailSetUp": mailer.status()["configured"],
+            "canImportflow": notify_mail._has_if(user), "canQuotes": auth.has_quotes_access(user)}
+
+
+@router.put("/me/notifications")
+def set_my_notifications(body: dict, db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    from .. import notify_mail
+    cur = dict(user.notify_prefs or {})
+    for k in notify_mail.PREF_KEYS:
+        if k in (body or {}):
+            cur[k] = bool(body[k])
+    user.notify_prefs = cur
+    db.commit()
+    return my_notifications(user)
+
+
+@router.post("/me/notifications/digest")
+def send_me_digest(db: Session = Depends(get_db), user: models.User = Depends(auth.get_current_user)):
+    """Send this week's payables summary to me now (to see what it looks like)."""
+    from .. import notify_mail
+    from fastapi import HTTPException
+    ok, err = notify_mail.send_digest(db, [user.email])
+    db.commit()
+    if not ok:
+        raise HTTPException(503 if "set up" in err else 502, err)
+    return {"ok": True, "sentTo": user.email}

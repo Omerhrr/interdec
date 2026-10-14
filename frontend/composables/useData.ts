@@ -2,6 +2,7 @@
 export const useData = () => {
   const vendors = useState<any[]>("vendors", () => []);
   const shippers = useState<any[]>("shippers", () => []);
+  const agents = useState<any[]>("clearing_agents", () => []);
   const projects = useState<any[]>("projects", () => []);
   const shipments = useState<any[]>("shipments", () => []);
   const users = useState<any[]>("platform_users", () => []);
@@ -18,13 +19,15 @@ export const useData = () => {
 
   const loadAll = async () => {
     try {
-      const [v, s, p, sh] = await Promise.all([
+      const [v, s, p, sh, ag] = await Promise.all([
         request<any[]>("/api/vendors"),
         request<any[]>("/api/shippers"),
         request<any[]>("/api/projects"),
         request<any[]>("/api/shipments"),
+        request<any[]>("/api/clearing-agents").catch(() => []),
         loadFx(),
       ]);
+      agents.value = ag;
       vendors.value = v;
       shippers.value = s;
       projects.value = p;
@@ -46,6 +49,9 @@ export const useData = () => {
     fx.value = await request("/api/settings/fx", { method: "PUT", body: { rates } });
   };
   const toUsd = (s: any) => (Number(s?.value) || 0) * (fx.value.rates[s?.currency] ?? 1);
+  const costUsd = (c: any) => (Number(c?.total) || 0) * (fx.value.rates[c?.currency] ?? 1);
+  // goods + shipping + clearing, in USD
+  const landedUsd = (s: any) => toUsd(s) + costUsd(s?.shippingCost) + costUsd(s?.clearingCost);
   const fxLabel = computed(() =>
     fx.value.isDefault || !fx.value.updated
       ? "default rates"
@@ -99,14 +105,15 @@ export const useData = () => {
 
   const vendorName = (id?: string | null) => vendors.value.find((v) => v.id === id)?.name || "N/A";
   const shipperName = (id?: string | null) => shippers.value.find((s) => s.id === id)?.name || "N/A";
+  const agentName = (id?: string | null) => agents.value.find((a) => a.id === id)?.name || "N/A";
   const projectName = (id?: string | null) =>
     id ? projects.value.find((p) => p.id === id)?.name || "N/A" : "General Stock";
   const company = (id?: string | null) => COMPANIES.find((c) => c.id === id);
 
   return {
-    vendors, shippers, projects, shipments, users, loaded,
-    notifications, unread, activity, fx, fxLabel, toUsd,
+    vendors, shippers, agents, projects, shipments, users, loaded,
+    notifications, unread, activity, fx, fxLabel, toUsd, costUsd, landedUsd,
     loadAll, loadUsers, loadFx, saveFx, loadActivity, loadNotifications, markAllRead, timeAgo,
-    vendorName, shipperName, projectName, company,
+    vendorName, shipperName, agentName, projectName, company,
   };
 };

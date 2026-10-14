@@ -183,7 +183,10 @@ const viewCatalog = async (i: number) => {
           Admin access: manage vendors, upload and organise PDF catalogues
         </p>
       </div>
-      <button v-if="!viewOnly" class="btn btn-accent" @click="openNew"><UiIcon name="plus" :size="15" /> New Vendor</button>
+      <div class="head-acts">
+        <IfExportMenu kind="vendors" :params="{ q: search, category: catFilter }" />
+        <button v-if="!viewOnly" class="btn btn-accent" @click="openNew"><UiIcon name="plus" :size="15" /> New Vendor</button>
+      </div>
     </div>
 
     <!-- Filters -->

@@ -33,7 +33,10 @@ const appGradient = computed(() =>
 const navItems = computed(() => {
   if (props.quotesMode) {
     const items = [{ k: "quotes", icon: "file", label: "Quotations" }];
-    if (isPlatformAdmin.value) items.push({ k: "rates", icon: "settings", label: "Rate Card" });
+    if (isPlatformAdmin.value) {
+      items.push({ k: "rates", icon: "settings", label: "Rate Card" });
+      items.push({ k: "design", icon: "palette", label: "PDF Design" });
+    }
     return items;
   }
   if (props.cataloguesMode) return [{ k: "vendors", icon: "folder", label: "Vendors" }];
@@ -41,13 +44,40 @@ const navItems = computed(() => {
     { k: "dashboard", icon: "home", label: "Dashboard" },
     { k: "vendors", icon: "factory", label: "Vendors" },
     { k: "shippers", icon: "ship", label: "Shippers" },
+    { k: "agents", icon: "shield", label: "Clearing Agents" },
     { k: "projects", icon: "clipboard", label: "Projects" },
     { k: "shipments", icon: "cycle", label: "Shipments" },
     { k: "reports", icon: "chart", label: "Reports" },
-  ].filter((i) => (isAdmin.value ? true : isViewer.value ? i.k === "reports" : true));
+  ].filter((i) => (isAdmin.value ? true : isViewer.value ? i.k === "reports" : true))
+    .concat(!isViewer.value ? [{ k: "import", icon: "upload", label: "Import data" }] : [])
+    .concat(isAdmin.value ? [{ k: "design", icon: "palette", label: "Document Design" }] : []);
 });
 
 const { logout } = useAuth();
+
+// Desktop: collapse to an icon rail (remembered per browser)
+const COLLAPSE_KEY = "interdec_sidebar_collapsed";
+const collapsed = ref(false);
+onMounted(() => {
+  try { collapsed.value = localStorage.getItem(COLLAPSE_KEY) === "1"; } catch { /* storage blocked */ }
+});
+const toggleCollapsed = () => {
+  collapsed.value = !collapsed.value;
+  try { localStorage.setItem(COLLAPSE_KEY, collapsed.value ? "1" : "0"); } catch { /* storage blocked */ }
+};
+// Ctrl/Cmd + B toggles, like most editors
+const onKey = (e: KeyboardEvent) => {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b") {
+    const t = e.target as HTMLElement;
+    if (t?.closest?.("input, textarea, [contenteditable]")) return;
+    e.preventDefault();
+    toggleCollapsed();
+  }
+};
+onMounted(() => window.addEventListener("keydown", onKey));
+onUnmounted(() => window.removeEventListener("keydown", onKey));
+
+const showNotif = ref(false);
 
 // Mobile drawer
 const mobileOpen = ref(false);
@@ -58,7 +88,7 @@ const nav = (k: string) => {
 </script>
 
 <template>
-  <div class="shell">
+  <div class="shell" :class="{ collapsed }">
     <a href="#main" class="skip">Skip to content</a>
     <!-- Mobile top bar -->
     <div class="mtop">
@@ -90,7 +120,7 @@ const nav = (k: string) => {
             <circle cx="22" cy="14" r="4"/><path d="M6 8V5h4"/>
           </svg>
         </div>
-        <div>
+        <div class="side-brand">
           <div style="font-size: 14px; font-weight: 800; letter-spacing: -.3px; color: #fff">
             {{ appTitle }}
           </div>
@@ -100,9 +130,15 @@ const nav = (k: string) => {
         </div>
         <button class="side-close" aria-label="Close menu" @click="mobileOpen = false"><UiIcon name="x" :size="16" /></button>
       </div>
+      <button
+        class="collapse-btn" :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'" :aria-expanded="!collapsed"
+        :title="(collapsed ? 'Expand' : 'Collapse') + ' sidebar (Ctrl+B)'" @click="toggleCollapsed"
+      >
+        <UiIcon :name="collapsed ? 'chevRight' : 'chevLeft'" :size="14" />
+      </button>
 
-      <button class="back-btn" @click="emit('portal')">
-        <UiIcon name="back" :size="13" /> Interdec Portal
+      <button class="back-btn" :title="collapsed ? 'Interdec Portal' : undefined" :aria-label="collapsed ? 'Interdec Portal' : undefined" @click="emit('portal')">
+        <UiIcon name="back" :size="13" /> <span class="txt">Interdec Portal</span>
       </button>
 
       <nav class="side-nav" :aria-label="`${appTitle} navigation`">
@@ -112,10 +148,12 @@ const nav = (k: string) => {
           class="nav-btn"
           :style="page === item.k ? { background: '#334155', color: '#fff' } : {}"
           :aria-current="page === item.k ? 'page' : undefined"
+          :title="collapsed ? item.label : undefined"
+          :aria-label="collapsed ? item.label : undefined"
           @click="nav(item.k)"
         >
           <UiIcon :name="item.icon" :size="16" />
-          {{ item.label }}
+          <span class="txt">{{ item.label }}</span>
         </button>
       </nav>
 
@@ -124,15 +162,20 @@ const nav = (k: string) => {
           <div class="user-avatar" :style="{ background: (roleColors[role] || '#64748b') + '20', color: roleColors[role] }">
             {{ user.avatar || user.name.slice(0, 2).toUpperCase() }}
           </div>
-          <div style="flex: 1; min-width: 0">
+          <div class="user-meta" style="flex: 1; min-width: 0">
             <div class="user-name">{{ user.name }}</div>
             <div class="user-role" :style="{ color: roleColors[role] }">{{ roleLabels[role] }}</div>
           </div>
-          <UiNotificationBell dark />
+          <UiNotificationBell class="side-bellbtn" dark />
+          <button class="mail-btn" title="Email notifications" aria-label="Email notifications" @click="showNotif = true"><UiIcon name="mail" :size="14" /></button>
         </div>
-        <button class="logout-btn" @click="logout"><UiIcon name="logout" :size="13" /> Sign Out</button>
+        <button class="logout-btn collapse-row" :title="collapsed ? 'Expand sidebar (Ctrl+B)' : 'Collapse sidebar (Ctrl+B)'" :aria-label="collapsed ? 'Expand sidebar' : undefined" :aria-expanded="!collapsed" @click="toggleCollapsed">
+          <UiIcon name="panel" :size="13" /> <span class="txt">Collapse sidebar</span>
+        </button>
+        <button class="logout-btn" :title="collapsed ? 'Sign Out' : undefined" :aria-label="collapsed ? 'Sign Out' : undefined" @click="logout"><UiIcon name="logout" :size="13" /> <span class="txt">Sign Out</span></button>
       </div>
     </aside>
+    <NotifPrefsModal v-if="showNotif" @close="showNotif = false" />
 
     <!-- Content -->
     <main id="main" class="content" tabindex="-1">
@@ -184,6 +227,27 @@ const nav = (k: string) => {
 .content { flex: 1; min-width: 0; }
 .side-bell { padding: 8px 12px 0; }
 .side-close { display: none; }
+.side { transition: width .2s ease; position: sticky; }
+.collapse-btn {
+  position: absolute; top: 20px; right: -11px; z-index: 5; width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid #cbd5e1; background: #fff; color: #334155; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 6px rgba(15,23,42,.15); transition: background .15s, color .15s;
+}
+.collapse-btn { opacity: 1; }
+.collapse-btn:hover { background: #eff6ff; color: #2563eb; border-color: #93c5fd; }
+/* icon rail */
+.collapsed .side { width: 64px; }
+.collapsed .side-head { justify-content: center; padding: 16px 0; }
+.collapsed .side-brand, .collapsed .txt, .collapsed .user-meta { display: none; }
+.collapsed .back-btn { margin: 10px 10px 4px; width: calc(100% - 20px); padding: 8px 0; }
+.collapsed .side-nav { padding: 10px; }
+.collapsed .nav-btn { justify-content: center; padding: 10px 0; }
+.collapsed .side-foot { padding: 12px 10px; }
+.collapsed .user-row { flex-direction: column; justify-content: center; gap: 8px; }
+.collapsed .logout-btn { padding: 8px 0; }
+.mail-btn { width: 28px; height: 28px; border-radius: 7px; border: 1px solid #334155; background: transparent; color: #94a3b8; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.mail-btn:hover { background: #334155; color: #fff; }
+.collapse-row { margin-bottom: 6px; border-style: dashed; }
 
 /* Mobile top bar + drawer */
 .mtop { display: none; }
@@ -204,10 +268,15 @@ const nav = (k: string) => {
   }
   .mtop-title { flex: 1; color: #fff; font-size: 14px; font-weight: 800; }
   .mtop-sub { font-size: 8.5px; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; margin-left: 6px; }
-  .side {
+  .side, .collapsed .side {
     position: fixed; left: 0; top: 0; bottom: 0; z-index: 60; transform: translateX(-100%);
     transition: transform .25s ease; width: 240px;
   }
+  .collapse-btn, .collapse-row { display: none; }
+  .collapsed .side-brand, .collapsed .txt, .collapsed .user-meta { display: revert; }
+  .collapsed .user-row { flex-direction: row; gap: 8px; }
+  .collapsed .side-head { justify-content: flex-start; padding: 16px 14px; }
+  .collapsed .nav-btn { justify-content: flex-start; padding: 9px 11px; }
   .side.open { transform: none; box-shadow: 24px 0 60px rgba(0,0,0,.45); }
   .backdrop { display: block; position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 50; }
   .side-close {

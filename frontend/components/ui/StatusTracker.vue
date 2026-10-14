@@ -45,5 +45,12 @@ const currentIdx = computed(() => STATUS_ORDER.indexOf(props.status));
 }
 .lab { font-size: 12px; white-space: nowrap; }
 .bar { width: 28px; height: 2px; margin: 0 10px; border-radius: 1px; flex-shrink: 0; }
-@media (max-width: 640px) { .bar { width: 12px; margin: 0 6px; } .lab { font-size: 11px; } }
+.tracker { max-width: 100%; min-width: 0; }
+/* phones: label under each dot so all four steps fit without sideways scrolling */
+@media (max-width: 640px) {
+  .tracker { width: 100%; justify-content: space-between; }
+  .step { flex-direction: column; gap: 4px; flex: 1 1 0; min-width: 0; text-align: center; }
+  .lab { font-size: 10.5px; white-space: normal; line-height: 1.2; }
+  .bar { display: none; }
+}
 </style>

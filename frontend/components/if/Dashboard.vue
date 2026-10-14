@@ -35,9 +35,12 @@ const ratesOpen = ref(false);
   <div class="page">
     <div class="head">
       <h1 class="ph">Dashboard</h1>
-      <button v-if="canEdit" class="btn btn-accent fab-m" @click="newShipment = true">
-        <UiIcon name="plus" :size="15" /> New Shipment
-      </button>
+      <div class="head-acts">
+        <IfExportMenu kind="dashboard" />
+        <button v-if="canEdit" class="btn btn-accent fab-m" @click="newShipment = true">
+          <UiIcon name="plus" :size="15" /> New Shipment
+        </button>
+      </div>
     </div>
 
     <!-- Company cards -->

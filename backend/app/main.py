@@ -3,9 +3,10 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .database import Base, engine
+from .database import Base, engine, SessionLocal
+from . import eta_alerts
 from .seed import seed
-from .routers import auth_router, users, vendors, shippers, projects, shipments, activity, quotes, settings
+from .routers import auth_router, users, vendors, shippers, projects, shipments, activity, quotes, settings, exports, clearing_agents, imports
 
 Base.metadata.create_all(bind=engine)
 
@@ -17,9 +18,19 @@ def _ensure_columns():
             ("logistics_cost", "REAL DEFAULT 0"),
             ("logistics_location", "VARCHAR DEFAULT ''"),
             ("status_note", "TEXT DEFAULT ''"),
+            ("currency", "VARCHAR DEFAULT 'NGN'"),
+            ("fx_rate", "REAL DEFAULT 1"),
         ],
         "users": [
             ("must_change_password", "BOOLEAN DEFAULT 0"),
+            ("notify_prefs", "JSON"),
+        ],
+        "shipments": [
+            ("eta_alerts", "JSON"),
+            ("clearing_agent_id", "VARCHAR"),
+            ("shipping_cost", "JSON"),
+            ("clearing_cost", "JSON"),
+            ("vendor_payments", "JSON"),
         ],
     }
     if engine.dialect.name != "sqlite":
@@ -62,6 +73,14 @@ app.include_router(projects.router)
 app.include_router(shipments.router)
 app.include_router(quotes.router)
 app.include_router(settings.router)
+app.include_router(exports.router)
+app.include_router(clearing_agents.router)
+app.include_router(imports.router)
+
+
+@app.on_event("startup")
+def _start_background_jobs():
+    eta_alerts.start_scheduler(SessionLocal)
 
 
 @app.get("/api/health")

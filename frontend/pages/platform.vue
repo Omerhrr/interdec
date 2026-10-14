@@ -3,7 +3,7 @@
 // shared links all work:
 //   /platform                                 portal
 //   /platform/importflow/<page>[/<id>]        dashboard | vendors | shippers | projects | shipments | reports
-//   /platform/quotes[/new | /<id>[/edit] | /rates]
+//   /platform/quotes[/new | /<id>[/edit] | /rates | /design]
 //   /platform/catalogues   /platform/facade   /platform/users
 // One instance of this page serves them all (no remount, data stays loaded).
 definePageMeta({ key: "platform" });
@@ -14,7 +14,7 @@ const { loadAll, loadUsers } = useData();
 const { request } = useApi();
 const ready = ref(false);
 
-const IF_PAGES = ["dashboard", "vendors", "shippers", "projects", "shipments", "reports"];
+const IF_PAGES = ["dashboard", "vendors", "shippers", "projects", "shipments", "agents", "reports", "import", "design"];
 const slug = computed<string[]>(() => {
   const s = route.params.slug;
   return (Array.isArray(s) ? s : s ? [s] : []).filter(Boolean) as string[];
@@ -28,7 +28,7 @@ const view = computed<string | null>(() => {
 });
 const page = computed(() => {
   if (view.value === "importflow") return IF_PAGES.includes(slug.value[1]) ? slug.value[1] : "dashboard";
-  if (view.value === "quotes") return slug.value[1] === "rates" ? "rates" : "quotes";
+  if (view.value === "quotes") return ["rates", "design"].includes(slug.value[1]) ? slug.value[1] : "quotes";
   return "vendors";
 });
 const detailId = computed(() => (view.value === "importflow" && slug.value[2]) || null);
@@ -36,7 +36,7 @@ const detail = computed(() => (detailId.value ? "detail" : null));
 // quotes sub-view: list | new | detail | edit
 const quoteRoute = computed(() => {
   const [, a, b] = slug.value;
-  if (!a || a === "rates") return { view: "list", id: null as string | null };
+  if (!a || a === "rates" || a === "design") return { view: "list", id: null as string | null };
   if (a === "new") return { view: "new", id: null };
   return { view: b === "edit" ? "edit" : "detail", id: a };
 });
@@ -145,7 +145,7 @@ const openApp = (app: string) => router.push(app === "admin" ? "/platform/users"
 
 // In-app navigation keeps the signature the pages already use: (page, 'detail'|null, id)
 const navigate = (p: string, d: string | null = null, id: string | null = null) => {
-  if (view.value === "quotes") return router.push(p === "rates" ? "/platform/quotes/rates" : "/platform/quotes");
+  if (view.value === "quotes") return router.push(["rates", "design"].includes(p) ? `/platform/quotes/${p}` : "/platform/quotes");
   if (view.value === "catalogues") return;
   router.push(`/platform/importflow/${p}${d && id ? `/${id}` : ""}`);
 };
@@ -172,11 +172,12 @@ watch(() => route.path, () => {
   if (import.meta.client) window.scrollTo({ top: 0 });
 });
 // tab title names the screen (useful with several tabs, history and screen readers)
-const TITLES: Record<string, string> = { dashboard: "Dashboard", vendors: "Vendors", shippers: "Shippers", projects: "Projects", shipments: "Shipments", reports: "Reports", rates: "Rate Card", quotes: "Quotations" };
+const TITLES: Record<string, string> = { dashboard: "Dashboard", vendors: "Vendors", shippers: "Shippers", projects: "Projects", shipments: "Shipments", reports: "Reports", rates: "Rate Card", design: "PDF Design", quotes: "Quotations" };
+const IF_TITLES: Record<string, string> = { design: "Document Design", agents: "Clearing Agents", import: "Import data" };
 useHead({
   title: computed(() => {
     const v = view.value;
-    const t = !v ? "Portal" : v === "admin" ? "Users" : v === "facade" ? "Legacy archive" : v === "catalogues" ? "Catalogues" : TITLES[page.value];
+    const t = !v ? "Portal" : v === "admin" ? "Users" : v === "facade" ? "Legacy archive" : v === "catalogues" ? "Catalogues" : (v === "importflow" && IF_TITLES[page.value]) || TITLES[page.value];
     return `${t} · Interdec`;
   }),
 });
@@ -217,9 +218,12 @@ provide("navigate", navigate);
       <IfDashboard v-if="page === 'dashboard'" @navigate="navigate" />
       <IfVendors v-else-if="page === 'vendors'" />
       <IfShippers v-else-if="page === 'shippers'" />
+      <IfClearingAgents v-else-if="page === 'agents'" />
       <IfProjects v-else-if="page === 'projects'" :detail="detail" :detail-id="detailId" @navigate="navigate" />
       <IfShipments v-else-if="page === 'shipments'" :detail="detail" :detail-id="detailId" @navigate="navigate" />
       <IfReports v-else-if="page === 'reports'" />
+      <IfDocDesign v-else-if="page === 'design'" />
+      <IfImportData v-else-if="page === 'import'" />
     </IfShell>
 
     <!-- Quotations (native pricing engine) -->
@@ -233,6 +237,7 @@ provide("navigate", navigate);
     >
       <QuoteQuotes v-if="page === 'quotes'" :route-view="quoteRoute.view" :route-id="quoteRoute.id" />
       <QuoteRateCard v-else-if="page === 'rates'" />
+      <QuotePdfDesign v-else-if="page === 'design'" />
     </IfShell>
 
     <!-- Catalogues -->

@@ -4,6 +4,7 @@ const props = defineProps<{ user: any }>();
 const emit = defineEmits<{ (e: "open", app: string): void; (e: "admin"): void }>();
 
 const showPwd = ref(false);
+const showNotif = ref(false);
 const roleLabels: Record<string, string> = { admin: "Admin", user: "User", viewer: "Reports Viewer", sales: "Sales" };
 const roleColors: Record<string, string> = { admin: "#8b5cf6", user: "#3b82f6", viewer: "#64748b", sales: "#f59e0b" };
 
@@ -43,6 +44,7 @@ const limited = (role: string) => ["viewer", "sales", "user"].includes(role) && 
         </div>
         <div style="display: flex; align-items: center; gap: 8px">
           <UiNotificationBell />
+          <button class="pwd-btn" title="Email notifications" aria-label="Email notifications" @click="showNotif = true"><UiIcon name="mail" :size="15" /></button>
           <button class="pwd-btn" title="Change password" @click="showPwd = true">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
@@ -126,6 +128,7 @@ const limited = (role: string) => ["viewer", "sales", "user"].includes(role) && 
     </div>
 
     <ChangePasswordModal v-if="showPwd" @close="showPwd = false" />
+    <NotifPrefsModal v-if="showNotif" @close="showNotif = false" />
   </main>
 </template>
 

@@ -2,7 +2,7 @@
 // Shipments: list (search, filters, sort, counts, paging) + detail with the 6-step workflow
 const props = defineProps<{ detail?: string | null; detailId?: string | null }>();
 const emit = defineEmits<{ (e: "navigate", p: string, d?: string | null, id?: string | null): void }>();
-const { shipments, shippers, vendorName, shipperName, projectName, toUsd } = useData();
+const { shipments, shippers, vendorName, shipperName, projectName, toUsd, costUsd, landedUsd, fxLabel } = useData();
 const { COMPANIES, STATUS_ORDER, STATUS_LABELS, PAYMENT_TERMS, SHIP_METHODS, fmtDate, fmtEta, etaToIso } = useConstants();
 const notify = inject<(m: string, t?: string) => void>("notify")!;
 const { confirm } = useConfirm();
@@ -67,6 +67,16 @@ const clearFilters = () => { search.value = ""; companyFilter.value = "All"; sta
 
 const shipment = computed(() => shipments.value.find((s) => s.id === props.detailId));
 const stageIdx = (s: any) => STATUS_ORDER.indexOf(s?.status);
+// what's left before the goods can be confirmed (mirrors the server rule)
+const closeMissing = computed(() => {
+  const s = shipment.value;
+  if (!s) return [];
+  const m: string[] = [];
+  if (!s.shipperInvoice) m.push("shipper invoice");
+  if (!(Number(s.shippingCost?.total) > 0)) m.push("shipping cost");
+  if (!s.clearingAgentId || !(Number(s.clearingCost?.total) > 0)) m.push("clearing cost");
+  return m;
+});
 
 // ---------- actions ----------
 const reload = async () => {
@@ -194,7 +204,10 @@ const menuItems = computed(() => [{ label: "Delete shipment", icon: "trash", dan
 <template>
   <!-- ==================== DETAIL ==================== -->
   <div v-if="detail === 'detail' && shipment" class="page">
-    <button class="back-link" @click="backToList"><UiIcon name="back" :size="14" /> Shipments</button>
+    <div class="topbar">
+      <button class="back-link" @click="backToList"><UiIcon name="back" :size="14" /> Shipments</button>
+      <IfExportMenu kind="shipment" :params="{ id: shipment.id }" />
+    </div>
 
     <div class="card" style="margin-bottom: 14px">
       <div class="d-head">
@@ -228,6 +241,8 @@ const menuItems = computed(() => [{ label: "Delete shipment", icon: "trash", dan
       </div>
     </div>
 
+    <IfEtaAlerts v-if="shipment.status !== 'completed' || shipment.etaAlertsOn" :shipment="shipment" :can-edit="canEdit" />
+
     <div class="wf-grid">
       <!-- 1. Vendor Invoice -->
       <div class="card">
@@ -258,6 +273,9 @@ const menuItems = computed(() => [{ label: "Delete shipment", icon: "trash", dan
         </form>
         <div v-else class="wf-wait">Not set</div>
       </div>
+
+      <!-- Vendor payments (deposit / balance) -->
+      <IfVendorPayments :shipment="shipment" :can-edit="canEdit" :is-admin="isAdmin" @changed="reload" />
 
       <!-- 3. Packing List -->
       <div class="card">
@@ -307,6 +325,9 @@ const menuItems = computed(() => [{ label: "Delete shipment", icon: "trash", dan
               <input v-model="shipForm.eta" type="date" class="inp" />
             </label>
           </div>
+          <p v-if="shipForm.paymentTerms === 'Before Shipment' && shipment.vendorPayStatus !== 'paid' && shipment.vendorPayStatus !== 'n/a'" class="pay-warn" role="status">
+            <UiIcon name="alert" :size="13" /> Terms are Before Shipment but the vendor isn't fully paid ({{ shipment.currency }} {{ Number(shipment.vendorBalance || 0).toLocaleString() }} still owed).
+          </p>
           <button class="btn btn-accent" :disabled="busy || shipMissing.length > 0">
             <UiIcon name="ship" :size="15" /> Mark as shipped
           </button>
@@ -330,15 +351,36 @@ const menuItems = computed(() => [{ label: "Delete shipment", icon: "trash", dan
         <div v-else class="wf-wait">Ship the goods first</div>
       </div>
 
-      <!-- 6. Confirm & Complete -->
+      <!-- 6–7. Shipping cost & clearing (recorded while in transit) -->
+      <IfCostCard :shipment="shipment" kind="shipping" :step="6" :can-edit="canEdit" :is-admin="isAdmin" @changed="reload" />
+      <IfCostCard :shipment="shipment" kind="clearing" :step="7" :can-edit="canEdit" :is-admin="isAdmin" @changed="reload" />
+
+      <!-- Landed cost -->
+      <div v-if="stageIdx(shipment) >= 2" class="card landed">
+        <h2 class="wf-title"><span class="wf-dot done"><UiIcon name="coins" :size="12" /></span>Landed cost</h2>
+        <div class="lc-amt">$ {{ Math.round(landedUsd(shipment)).toLocaleString() }}</div>
+        <ul class="lc">
+          <li><span>Goods</span><span>$ {{ Math.round(toUsd(shipment)).toLocaleString() }}</span></li>
+          <li><span>Shipping</span><span>{{ shipment.shippingCost?.total ? "$ " + Math.round(costUsd(shipment.shippingCost)).toLocaleString() : "not recorded" }}</span></li>
+          <li><span>Clearing</span><span>{{ shipment.clearingCost?.total ? "$ " + Math.round(costUsd(shipment.clearingCost)).toLocaleString() : "not recorded" }}</span></li>
+        </ul>
+        <div class="wf-note">In USD at {{ fxLabel }}</div>
+      </div>
+
+      <!-- 8. Confirm & Complete -->
       <div class="card" :class="{ complete: shipment.status === 'completed' }">
         <h2 class="wf-title"><span class="wf-dot" :class="{ done: shipment.status === 'completed' }"><UiIcon name="check" :size="12" :stroke="3" /></span>Confirm and complete</h2>
         <div v-if="shipment.status === 'completed'" class="wf-ok">Cycle completed {{ fmtDate(shipment.dates?.closed) }}</div>
-        <template v-else-if="shipment.status === 'in_transit' && shipment.shipperInvoice && canEdit">
+        <template v-else-if="shipment.status === 'in_transit' && canEdit && !closeMissing.length">
           <p class="wf-note" style="margin: 0 0 10px">Goods received in good condition? Confirming closes this importation cycle.</p>
           <button class="btn btn-accent" :disabled="busy" @click="confirmGoods"><UiIcon name="check" :size="15" /> Confirm goods received</button>
         </template>
-        <div v-else class="wf-wait">Upload the shipper invoice first</div>
+        <template v-else-if="shipment.status === 'in_transit' && canEdit && isAdmin && shipment.shipperInvoice">
+          <div class="wf-wait" style="margin-bottom: 10px">Still to record: {{ closeMissing.join(", ") }}. As an admin you can close it anyway.</div>
+          <button class="btn btn-secondary" :disabled="busy" @click="confirmGoods"><UiIcon name="check" :size="15" /> Confirm anyway</button>
+        </template>
+        <div v-else-if="shipment.status === 'in_transit'" class="wf-wait">Still to do: {{ closeMissing.join(", ") }}</div>
+        <div v-else class="wf-wait">Ship the goods first</div>
       </div>
     </div>
   </div>
@@ -347,7 +389,10 @@ const menuItems = computed(() => [{ label: "Delete shipment", icon: "trash", dan
   <div v-else class="page">
     <div class="head">
       <h1 class="ph">Shipments</h1>
-      <button v-if="canEdit" class="btn btn-accent fab-m" @click="showNew = true"><UiIcon name="plus" :size="15" /> New Shipment</button>
+      <div class="head-acts">
+        <IfExportMenu kind="shipments" :params="{ status: statusFilter, company: companyFilter, q: search }" :label="filtersOn ? 'Export filtered' : 'Export'" />
+        <button v-if="canEdit" class="btn btn-accent fab-m" @click="showNew = true"><UiIcon name="plus" :size="15" /> New Shipment</button>
+      </div>
     </div>
 
     <div class="filters">
@@ -463,6 +508,12 @@ const menuItems = computed(() => [{ label: "Delete shipment", icon: "trash", dan
 .wf-note { font-size: 11.5px; color: #64748b; margin-top: 6px; }
 .wf-wait { color: #64748b; font-size: 12.5px; }
 .wf-ok { font-size: 13px; font-weight: 700; color: #047857; }
+.pay-warn { display: flex; gap: 6px; align-items: flex-start; font-size: 12px; font-weight: 600; color: #92400e; background: #fffbeb; border-radius: 8px; padding: 7px 10px; margin: 0 0 8px; }
+.landed { background: #f0fdfa; border-color: #99f6e4; align-self: start; }
+.lc-amt { font-size: 22px; font-weight: 800; color: #0f766e; font-variant-numeric: tabular-nums; }
+.lc { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 3px; }
+.lc li { display: flex; justify-content: space-between; font-size: 12.5px; color: #475569; }
+.lc li span:last-child { color: #0f172a; font-variant-numeric: tabular-nums; }
 .prod { display: flex; align-items: center; justify-content: space-between; }
 .prod-v { font-size: 17px; font-weight: 700; color: #6d28d9; }
 .prod-form { display: flex; gap: 8px; align-items: center; }

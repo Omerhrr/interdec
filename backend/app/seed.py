@@ -1,4 +1,5 @@
 """Seed data - exact demo dataset extracted from the original app."""
+import datetime
 import time
 import uuid
 from .database import SessionLocal, engine, Base
@@ -174,6 +175,46 @@ def seed():
                             vendor_invoice=finv("INV-RT-9012.pdf", 112000, 55), packing_list=finv("PL-RT-Bales.xlsx", 58000, 42, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"), shipper_invoice=finv("INV-HTC-331.pdf", 76000, 20), goods_confirmed=True,
                             dates={"created": NOW - 70 * DAY, "invoiceUploaded": NOW - 55 * DAY, "packingReady": NOW - 42 * DAY, "shipperSelected": NOW - 38 * DAY, "shipped": NOW - 28 * DAY, "shipperInvoiced": NOW - 20 * DAY, "closed": NOW - 16 * DAY}, created=NOW - 70 * DAY, updated=NOW - 16 * DAY),
         ]
+        # --- Clearing agents + recorded costs on shipped demo cycles ---
+        db.add_all([
+            models.ClearingAgent(id="ca1", name="Apapa Clearing & Forwarding Ltd", contact="Chinedu Okeke", email="ops@apapaclearing.ng", phone="+234 803 555 0101", country="Nigeria", category="Sea port", notes="Apapa and Tin Can Island. Licensed customs broker.", created=NOW - 200 * DAY),
+            models.ClearingAgent(id="ca2", name="Lekki Port Logistics", contact="Funmi Adeyemi", email="clearing@lekkiportlog.ng", phone="+234 809 555 0202", country="Nigeria", category="Sea port", notes="Lekki Deep Sea Port.", created=NOW - 120 * DAY),
+            models.ClearingAgent(id="ca3", name="MMIA Air Cargo Agents", contact="Ibrahim Musa", email="cargo@mmiaagents.ng", phone="+234 802 555 0303", country="Nigeria", category="Airport", notes="Murtala Muhammed airport cargo terminal.", created=NOW - 60 * DAY),
+        ])
+
+        def cost(currency, lines, ref, paid_days_ago=None):
+            ls = [{"id": f"l{i}", "label": l, "amount": a} for i, (l, a) in enumerate(lines)]
+            paid = paid_days_ago is not None
+            return {"currency": currency, "lines": ls, "total": round(sum(a for _, a in lines), 2), "invoiceRef": ref,
+                    "note": "", "paid": paid, "paidOn": (datetime.date.today() - datetime.timedelta(days=paid_days_ago)).isoformat() if paid else "",
+                    "updated": NOW - 10 * DAY, "updatedBy": "Joshua Nwaorgu"}
+
+        for sh in shipments:
+            if sh.id == "sp1":
+                sh.shipping_cost = cost("USD", [("Ocean freight (20ft)", 3200), ("Bunker surcharge", 450), ("Insurance", 180)], "GFL-INV-5521", 20)
+                sh.clearing_agent_id = "ca1"
+                sh.clearing_cost = {**cost("NGN", [("Import duty", 4850000), ("VAT", 1820000), ("Port & terminal charges", 640000), ("Shipping line / D.O.", 385000), ("Agent fee", 350000)], "ACF-2026-117", 12), "docs": []}
+                sh.dates = {**(sh.dates or {}), "shippingCosted": NOW - 14 * DAY, "clearingCosted": NOW - 12 * DAY}
+            elif sh.id == "sp2":
+                sh.shipping_cost = cost("USD", [("Ocean freight (LCL)", 1450), ("Documentation fee", 75)], "MLA-88231")
+                sh.clearing_agent_id = "ca2"
+                sh.dates = {**(sh.dates or {}), "shippingCosted": NOW - 6 * DAY}
+        # vendor payments: deposits and balances against each order
+        def pays(*rows):
+            return [{"id": f"vp{i}", "date": (datetime.date.today() - datetime.timedelta(days=d)).isoformat(), "amount": a,
+                     "kind": k, "ref": r, "note": "", "by": "Joshua Nwaorgu", "ts": NOW - d * DAY} for i, (d, a, k, r) in enumerate(rows)]
+        for sh in shipments:
+            v = float(sh.value or 0)
+            if sh.id == "sp1":
+                sh.vendor_payments = pays((70, round(v * .3, 2), "Deposit", "TT-0221"), (20, round(v * .7, 2), "Balance", "TT-0342"))
+            elif sh.id == "sp2":
+                sh.vendor_payments = pays((28, v, "Full payment", "TT-0287"))
+            elif sh.id == "sp3":
+                sh.vendor_payments = pays((24, round(v * .5, 2), "Deposit", "TT-0301"))
+            elif sh.id == "sp7":
+                sh.vendor_payments = pays((35, v, "Full payment", "TT-0259"))
+            elif sh.id == "sp6":
+                sh.vendor_payments = pays((40, round(v * .3, 2), "Deposit", "TT-0266"))
         db.add_all(shipments)
 
         # Activity feed + notifications demo history
@@ -194,6 +235,23 @@ def seed():
                                        message="Welcome to the new Interdec Platform! Recent shipment and catalogue updates will appear here.",
                                        kind="info", icon="👋", ts=NOW - 2 * DAY, read=(uid_ == "u_viewer")))
 
+        # a won quote linked to a project, so budget vs actual has real numbers
+        won_items = [
+            {"id": "w1", "product": "et_cw", "subTypeId": "etcw_g", "width": 6000, "height": 4000, "qty": 40,
+             "glassTypeId": "dgu", "glassThickness": "6+12A+6", "glassDguOuter": "lowe", "glassDguInner": "clear", "position": "CW-North"},
+            {"id": "w2", "product": "et_door", "subTypeId": "etd_double", "width": 1800, "height": 2400, "qty": 6,
+             "glassTypeId": "laminated", "glassThickness": "12.76mm (6+6)", "glassColour": "clear", "position": "D-Lobby"},
+        ]
+        t = pricing.calc_totals(won_items, 100.0, 7.5)
+        wq = models.Quote(id="qwon1", number="IDF-2026-000", project_id="pj1", project_name="Azrieli Tower Renovation",
+                          client_name="Azrieli Group", client_phone="", client_email="", sales_person="Chidi Okafor",
+                          notes="", created=NOW - 90 * DAY, updated=NOW - 80 * DAY)
+        db.add(wq)
+        db.add(models.QuoteRevision(id="qwon1r0", quote_id=wq.id, rev=0, status="won", status_note="PO-AZ-7781",
+                                    items=[dict(it) for it in t["items"]], markup_pct=100.0, vat_pct=7.5, validity_days=14,
+                                    payment_terms="80% advance payment upon order confirmation.", note="",
+                                    cost=t["cost"], mk_amt=t["mkAmt"], sub=t["sub"], vat_amt=t["vat"], total=t["total"],
+                                    currency="NGN", fx_rate=1.0, created=NOW - 90 * DAY, updated=NOW - 80 * DAY))
         db.commit()
         print("✓ Seeded: 3 users, 7 vendors, 4 shippers, 5 projects, 7 shipments, activity + notifications")
     finally:

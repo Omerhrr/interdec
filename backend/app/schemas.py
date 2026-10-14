@@ -175,6 +175,8 @@ class QuoteCreate(BaseModel):
     items: list = []
     markupPct: Optional[float] = None   # defaults from settings when omitted
     vatPct: Optional[float] = None
+    currency: Optional[str] = None      # quote currency (default NGN)
+    fxRate: Optional[float] = None      # naira per 1 unit; default = today's rate
 
 
 class QuoteUpdate(BaseModel):
@@ -191,6 +193,8 @@ class RevisionCreate(BaseModel):
     markupPct: Optional[float] = None
     vatPct: Optional[float] = None
     note: str = ""
+    currency: Optional[str] = None
+    fxRate: Optional[float] = None
 
 
 class RevisionUpdate(BaseModel):
@@ -198,15 +202,19 @@ class RevisionUpdate(BaseModel):
     markupPct: Optional[float] = None
     vatPct: Optional[float] = None
     note: Optional[str] = None
+    currency: Optional[str] = None
+    fxRate: Optional[float] = None
 
 
 class StatusUpdate(BaseModel):
     status: QuoteStatus
     note: Optional[str] = None  # reason / PO reference, required for won and lost
+    # when won: {"mode": "create", "name": "..."} | {"mode": "link", "projectId": "..."} | None
+    project: Optional[dict] = None
 
 
 class CatalogUpdate(BaseModel):
-    value: dict
+    value: dict | list
 
 
 TokenResponse.model_rebuild()

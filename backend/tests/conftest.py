@@ -6,5 +6,8 @@ import tempfile
 
 _TMP = tempfile.mkdtemp(prefix="interdec-test-")
 os.environ["INTERDEC_DATABASE_URL"] = f"sqlite:///{os.path.join(_TMP, 'test.db')}"
+os.environ["INTERDEC_DISABLE_SCHEDULER"] = "1"
+for _k in ("INTERDEC_SMTP_HOST", "INTERDEC_SMTP_USER", "INTERDEC_SMTP_FROM"):
+    os.environ.pop(_k, None)
 os.environ.setdefault("INTERDEC_SECRET_KEY", "test-secret-key-for-pytest-only-0123456789")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

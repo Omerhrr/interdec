@@ -83,7 +83,10 @@ const remove = async (s: any) => {
         <h1 class="ph">Shippers</h1>
         <p style="font-size: 12px; color: #64748b; margin-top: 3px">Freight forwarders &amp; carriers</p>
       </div>
-      <button v-if="canEdit" class="btn btn-accent" @click="openNew"><UiIcon name="plus" :size="15" /> New Shipper</button>
+      <div class="head-acts">
+        <IfExportMenu kind="shippers" :params="{ q: search }" />
+        <button v-if="canEdit" class="btn btn-accent" @click="openNew"><UiIcon name="plus" :size="15" /> New Shipper</button>
+      </div>
     </div>
 
     <div class="filters">

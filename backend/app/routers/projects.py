@@ -3,7 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ..database import get_db
-from .. import models, auth
+from .. import models, auth, finance
 from ..schemas import ProjectCreate, ProjectUpdate
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -18,6 +18,21 @@ def _out(p: models.Project) -> dict:
         "status": p.status,
         "created": p.created,
     }
+
+
+@router.get("/budgets")
+def project_budgets(user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    """Budget vs actual for every project (naira): contract value from won quotes vs landed cost of its shipments."""
+    money = finance.Money(db)
+    return {p.id: finance.project_budget(db, p, money) for p in db.query(models.Project).all()}
+
+
+@router.get("/{project_id}/budget")
+def project_budget(project_id: str, user: models.User = Depends(auth.get_current_user), db: Session = Depends(get_db)):
+    p = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not p:
+        raise HTTPException(404, "Project not found")
+    return finance.project_budget(db, p)
 
 
 @router.get("")

@@ -70,7 +70,8 @@ export const useApi = () => {
 
   // Save a Blob to disk via a temporary link
   const saveBlob = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
+    // a generic type stops browsers opening PDFs inline instead of saving them
+    const url = URL.createObjectURL(new Blob([blob], { type: "application/octet-stream" }));
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;

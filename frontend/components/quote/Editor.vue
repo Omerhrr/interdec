@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { CURRENCY_NAMES } from "~/composables/useMoney";
 // Quote editor - client meta, item builder with live server-side pricing, markup/VAT
 const props = defineProps<{ editing: any; catalog: any; projects: any[] }>();
 const emit = defineEmits<{ (e: "saved", msg: string, id?: string): void; (e: "cancel"): void }>();
@@ -7,11 +8,13 @@ const notify = inject<(m: string, t?: string) => void>("notify")!;
 const { request } = useApi();
 
 const form = ref<any>(JSON.parse(JSON.stringify(props.editing)));
+form.value.currency = form.value.currency || "NGN";
+form.value.fxRate = form.value.fxRate || 1;
 
 // ---- unsaved-changes guard: any way out of the editor asks first ----
 const { confirm } = useConfirm();
-const initial = JSON.stringify({ m: form.value.meta, i: form.value.items, k: form.value.markupPct, v: form.value.vatPct });
-const dirty = computed(() => JSON.stringify({ m: form.value.meta, i: form.value.items, k: form.value.markupPct, v: form.value.vatPct }) !== initial);
+const initial = JSON.stringify({ m: form.value.meta, i: form.value.items, k: form.value.markupPct, v: form.value.vatPct, c: form.value.currency, r: form.value.fxRate });
+const dirty = computed(() => JSON.stringify({ m: form.value.meta, i: form.value.items, k: form.value.markupPct, v: form.value.vatPct, c: form.value.currency, r: form.value.fxRate }) !== initial);
 let leaving = false; // set after a successful save
 const router = useRouter();
 const offGuard = router.beforeEach(async () => {
@@ -33,6 +36,21 @@ const saving = ref(false);
 const err = ref("");
 
 const values = computed(() => props.catalog?.values || {});
+// ---- quote currency: every price on this quote is in it, at a locked rate ----
+const money = useMoney();
+const fx = computed<Record<string, number>>(() => props.catalog?.fx || { NGN: 1 });
+const currencies = computed(() => {
+  const list = Object.keys(fx.value).sort((a, b) => (a === "NGN" ? -1 : b === "NGN" ? 1 : a.localeCompare(b)));
+  return list.includes(form.value.currency) ? list : [form.value.currency, ...list];
+});
+const todayRate = computed(() => Math.round((fx.value[form.value.currency] || 0) * 100) / 100);
+const setCurrency = (code: string) => {
+  form.value.currency = code;
+  form.value.fxRate = code === "NGN" ? 1 : todayRate.value || form.value.fxRate;
+};
+const rateOff = computed(() =>
+  form.value.currency !== "NGN" && todayRate.value > 0 && Math.abs(Number(form.value.fxRate) - todayRate.value) / todayRate.value > 0.005
+);
 const settings = computed(() => values.value.settings || {});
 const minMarkup = computed(() => Number(settings.value.minMarkup ?? 70));
 
@@ -42,11 +60,27 @@ const isLm = (it: any) => {
 };
 const isAcp = (it: any) => it.product === "acp";
 const subsFor = (pid: string) => (values.value.subs || {})[pid] || [];
-const subEligible = (st: string, list: string[]) => list.includes(st);
+// each type says whether a mosquito net / sub-frame applies (set on the Rate Card)
+const subFlag = (stid: string, key: "mosq" | "subframe" | "sliding") => {
+  for (const pid of Object.keys(values.value.subs || {})) {
+    const st = (values.value.subs[pid] || []).find((x: any) => x.id === stid);
+    if (st) return !!st[key];
+  }
+  return false;
+};
 const glassTypes = computed(() => values.value.gc?.types || []);
 const thicknesses = (tid: string) => (values.value.gc?.thicknesses || {})[tid] || [];
 const colours = computed(() => values.value.gc?.colours || []);
 const acpPanels = computed(() => values.value.acpPanels || []);
+// Optional extra charges from the rate card: shown as tick boxes on matching items
+const optionalExtras = (it: any) =>
+  (values.value.rates?.extras || []).filter((x: any) => x.optional && (!x.products?.length || x.products.includes(it.product)));
+const hasExtra = (it: any, id: string) => (it.extraIds || []).includes(id);
+const toggleExtra = (it: any, id: string) => {
+  const s = new Set(it.extraIds || []);
+  s.has(id) ? s.delete(id) : s.add(id);
+  it.extraIds = [...s];
+};
 const isDgu = (tid: string) => {
   const t = glassTypes.value.find((x: any) => x.id === tid);
   return !!(t && t.isDGU);
@@ -85,7 +119,7 @@ const recalc = () => {
     try {
       totals.value = await request("/api/quotes/calculate", {
         method: "POST",
-        body: { items: form.value.items, markupPct: form.value.markupPct, vatPct: form.value.vatPct },
+        body: { items: form.value.items, markupPct: form.value.markupPct, vatPct: form.value.vatPct, currency: form.value.currency, fxRate: Number(form.value.fxRate) > 0 ? Number(form.value.fxRate) : null },
       });
     } catch (e: any) {
       /* transient - keep last good totals */
@@ -95,14 +129,15 @@ const recalc = () => {
   }, 350);
 };
 
-watch(() => JSON.stringify(form.value.items) + form.value.markupPct + form.value.vatPct, recalc);
+watch(() => JSON.stringify(form.value.items) + form.value.markupPct + form.value.vatPct + form.value.currency + form.value.fxRate, recalc);
 onMounted(recalc);
 
-const fmtN = (n: number) => "₦" + Math.round(n || 0).toLocaleString("en-NG");
+const fmtN = (n: number) => money.fmt(n, form.value.currency);
 
 const validate = (): string => {
   if (!form.value.meta.clientName?.trim()) return "Client name is required";
   if (!form.value.items.length) return "Add at least one item";
+  if (form.value.currency !== "NGN" && !(Number(form.value.fxRate) > 0)) return "Enter the exchange rate for this quote";
   for (const [i, it] of form.value.items.entries()) {
     const n = i + 1;
     if (isLm(it)) {
@@ -145,7 +180,7 @@ const save = async () => {
     if (!form.value.quoteId) {
       const q = await request("/api/quotes", {
         method: "POST",
-        body: { ...meta, items: form.value.items, markupPct: form.value.markupPct, vatPct: form.value.vatPct },
+        body: { ...meta, items: form.value.items, markupPct: form.value.markupPct, vatPct: form.value.vatPct, currency: form.value.currency, fxRate: Number(form.value.fxRate) },
       });
       leaving = true;
       emit("saved", `Quote ${q.number} created`, q.id);
@@ -153,7 +188,7 @@ const save = async () => {
       await request(`/api/quotes/${form.value.quoteId}`, { method: "PUT", body: meta });
       await request(`/api/quotes/${form.value.quoteId}/revisions/${form.value.revisionId}`, {
         method: "PUT",
-        body: { items: form.value.items, markupPct: form.value.markupPct, vatPct: form.value.vatPct },
+        body: { items: form.value.items, markupPct: form.value.markupPct, vatPct: form.value.vatPct, currency: form.value.currency, fxRate: Number(form.value.fxRate) },
       });
       leaving = true;
       emit("saved", `Quote ${form.value.number} saved`, form.value.quoteId);
@@ -161,7 +196,7 @@ const save = async () => {
       // latest revision already sent/won/lost: save changes as a new revision
       const r = await request(`/api/quotes/${form.value.quoteId}/revisions`, {
         method: "POST",
-        body: { items: form.value.items, markupPct: form.value.markupPct, vatPct: form.value.vatPct, note: "Priced revision after update" },
+        body: { items: form.value.items, markupPct: form.value.markupPct, vatPct: form.value.vatPct, currency: form.value.currency, fxRate: Number(form.value.fxRate), note: "Priced revision after update" },
       });
       await request(`/api/quotes/${form.value.quoteId}`, { method: "PUT", body: meta });
       leaving = true;
@@ -177,7 +212,7 @@ const save = async () => {
 const addItem = () =>
   form.value.items.push({
     id: Math.random().toString(36).slice(2, 10),
-    product: "et_window", subTypeId: "etw_fixed",
+    product: values.value.products?.[0]?.id || "et_window", subTypeId: subsFor(values.value.products?.[0]?.id || "et_window")[0]?.id || "etw_fixed",
     width: null, height: null, length: null, qty: 1,
     glassTypeId: "", glassThickness: "", glassColour: "",
     glassDguOuter: "", glassDguInner: "", acpPanelId: "", ovGlassRate: null,
@@ -330,7 +365,7 @@ const bomOf = (it: any) => totals.value?.items?.find((x: any) => x.id === it.id)
                     <option v-for="p in acpPanels" :key="p.id" :value="p.id">{{ p.name }}</option>
                   </select>
                 </label>
-                <label class="f">Custom rate/m² override<input v-model.number="it.ovGlassRate" type="number" min="0" class="inp" placeholder="Optional" /></label>
+                <label class="f">Custom rate/m² override ({{ money.sym(form.currency).trim() }})<input v-model.number="it.ovGlassRate" type="number" min="0" class="inp" placeholder="Optional" /></label>
               </template>
               <template v-else>
                 <label class="f" :class="{ need: miss(it, 'glass type') }">Glass Type
@@ -423,20 +458,17 @@ const bomOf = (it: any) => totals.value?.items?.find((x: any) => x.id === it.id)
             </div>
 
             <div class="toggles">
-              <label
-                v-if="subEligible(it.subTypeId, values.settings ? [] : []) || true"
-                class="tgl"
-                :class="{ off: !['etw_single','etw_double','etw_s2','etw_s3','etw_s4','ctw_single','ctw_double','ctw_s2','ctw_s3','ctw_s4','etd_s2','etd_s3','etd_s4','ctd_s2','ctd_s3','ctd_s4'].includes(it.subTypeId) }"
-              >
-                <input v-model="it.hasMosq" type="checkbox" :disabled="!['etw_single','etw_double','etw_s2','etw_s3','etw_s4','ctw_single','ctw_double','ctw_s2','ctw_s3','ctw_s4','etd_s2','etd_s3','etd_s4','ctd_s2','ctd_s3','ctd_s4'].includes(it.subTypeId)" />
+              <label class="tgl" :class="{ off: !subFlag(it.subTypeId, 'mosq') }">
+                <input v-model="it.hasMosq" type="checkbox" :disabled="!subFlag(it.subTypeId, 'mosq')" />
                 Mosquito Net
               </label>
-              <label
-                class="tgl"
-                :class="{ off: !['etw_fixed','etw_single','etw_double','etw_s2','etw_s3','etw_s4','ctw_fixed','ctw_single','ctw_double','ctw_s2','ctw_s3','ctw_s4','etd_single','etd_double','etd_s2','etd_s3','etd_s4','ctd_single','ctd_double','ctd_s2','ctd_s3','ctd_s4','etcw_g','ctcw_g','ctm_s2','ctm_s3','ctm_s4'].includes(it.subTypeId) }"
-              >
-                <input v-model="it.hasSubframe" type="checkbox" :disabled="!['etw_fixed','etw_single','etw_double','etw_s2','etw_s3','etw_s4','ctw_fixed','ctw_single','ctw_double','ctw_s2','ctw_s3','ctw_s4','etd_single','etd_double','etd_s2','etd_s3','etd_s4','ctd_single','ctd_double','ctd_s2','ctd_s3','ctd_s4','etcw_g','ctcw_g','ctm_s2','ctm_s3','ctm_s4'].includes(it.subTypeId)" />
+              <label class="tgl" :class="{ off: !subFlag(it.subTypeId, 'subframe') }">
+                <input v-model="it.hasSubframe" type="checkbox" :disabled="!subFlag(it.subTypeId, 'subframe')" />
                 Sub-Frame
+              </label>
+              <label v-for="x in optionalExtras(it)" :key="x.id" class="tgl">
+                <input type="checkbox" :checked="hasExtra(it, x.id)" @change="toggleExtra(it, x.id)" />
+                {{ x.name }}
               </label>
             </div>
 
@@ -451,6 +483,7 @@ const bomOf = (it: any) => totals.value?.items?.find((x: any) => x.id === it.id)
               <span v-if="bomOf(it).mosqCost">Net {{ fmtN(bomOf(it).mosqCost) }}</span>
               <span v-if="bomOf(it).subframeCost">Sub-frame {{ fmtN(bomOf(it).subframeCost) }}</span>
               <span v-if="bomOf(it).sealantCost">Sealant {{ fmtN(bomOf(it).sealantCost) }}</span>
+              <span v-for="x in bomOf(it).extras || []" :key="x.id">{{ x.name }} {{ fmtN(x.cost) }}</span>
             </div>
             </div>
           </div>
@@ -463,6 +496,21 @@ const bomOf = (it: any) => totals.value?.items?.find((x: any) => x.id === it.id)
       <div class="col-r">
         <div class="card sticky">
           <div class="card-t">Pricing</div>
+          <div class="grid2 curbox">
+            <label class="f">Currency
+              <select class="inp" :value="form.currency" @change="setCurrency(($event.target as HTMLSelectElement).value)">
+                <option v-for="c in currencies" :key="c" :value="c" :title="CURRENCY_NAMES[c] || c">{{ c }}</option>
+              </select>
+            </label>
+            <label v-if="form.currency !== 'NGN'" class="f">₦ per 1 {{ form.currency }}
+              <input v-model.number="form.fxRate" type="number" min="0" step="0.01" class="inp" />
+            </label>
+          </div>
+          <div v-if="form.currency !== 'NGN'" class="hint" style="margin: -4px 0 10px">
+            Rate locked on this quote.
+            <template v-if="rateOff">Today's rate is ₦{{ todayRate.toLocaleString("en-NG") }}. <button type="button" class="lnk" @click="form.fxRate = todayRate">Use today's rate</button></template>
+            <template v-else>Matches today's exchange rate.</template>
+          </div>
           <div class="grid2">
             <label class="f">Markup %<input v-model.number="form.markupPct" type="number" class="inp" :min="minMarkup" @blur="clampMarkup" /></label>
             <label class="f">VAT %<input v-model.number="form.vatPct" type="number" step="0.1" class="inp" /></label>
@@ -502,6 +550,8 @@ const bomOf = (it: any) => totals.value?.items?.find((x: any) => x.id === it.id)
 </template>
 
 <style scoped>
+.curbox { margin-bottom: 10px; }
+.lnk { background: none; border: none; padding: 0; font: inherit; font-weight: 700; color: #2563eb; cursor: pointer; text-decoration: underline; }
 .mbar { display: none; }
 @media (max-width: 860px) {
   .wrap { padding-bottom: 96px !important; }

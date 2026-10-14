@@ -1,0 +1,186 @@
+<script setup lang="ts">
+// Clearing agents page - CRUD (same structure as Shippers)
+const { agents, shipments, costUsd } = useData();
+const { COUNTRY_FLAGS, fmtDate } = useConstants();
+const notify = inject<(m: string, t?: string) => void>("notify")!;
+const { confirm } = useConfirm();
+const { request } = useApi();
+const { importflowRole } = useAuth();
+const canEdit = computed(() => ["admin", "user"].includes(importflowRole.value));
+
+const SHIPPER_TYPES = ["Sea port", "Airport", "Land border", "Inland dry port", "Other"];
+// shipments each agent is clearing, and what they have billed (USD)
+const usage = (id: string) => {
+  const l = shipments.value.filter((s: any) => s.clearingAgentId === id);
+  return { n: l.length, open: l.filter((s: any) => s.status !== "completed").length, usd: l.reduce((a: number, s: any) => a + costUsd(s.clearingCost), 0) };
+};
+
+const search = ref("");
+const showForm = ref(false);
+const editing = ref<any>(null);
+const form = ref<any>({});
+const { snap, dirty } = useDirty(() => form.value);
+const err = ref("");
+const saving = ref(false);
+
+const filtered = computed(() =>
+  [...agents.value].sort((a, b) => a.name.localeCompare(b.name)).filter((s) => {
+    const q = search.value.toLowerCase();
+    return !q || s.name?.toLowerCase().includes(q) || s.contact?.toLowerCase().includes(q) || s.country?.toLowerCase().includes(q);
+  })
+);
+
+const openNew = () => {
+  editing.value = null;
+  form.value = { name: "", contact: "", email: "", phone: "", country: "", category: "", notes: "" };
+  err.value = "";
+  showForm.value = true;
+  nextTick(snap);
+};
+const openEdit = (s: any) => {
+  editing.value = s;
+  const { id, created, ...fields } = s;
+  form.value = { ...fields };
+  err.value = "";
+  showForm.value = true;
+  nextTick(snap);
+};
+
+const save = async () => {
+  if (!form.value.name?.trim()) {
+    err.value = "Company name is required";
+    return;
+  }
+  saving.value = true;
+  try {
+    if (editing.value) {
+      await request(`/api/clearing-agents/${editing.value.id}`, { method: "PUT", body: form.value });
+      notify("Clearing agent updated");
+    } else {
+      await request("/api/clearing-agents", { method: "POST", body: form.value });
+      notify("Clearing agent added");
+    }
+    showForm.value = false;
+    await useData().loadAll();
+  } catch (e: any) {
+    err.value = e.message;
+  } finally {
+    saving.value = false;
+  }
+};
+
+const remove = async (s: any) => {
+  if (!(await confirm({ title: `Delete ${s.name}?`, message: "This cannot be undone.", confirmLabel: "Delete agent", danger: true }))) return;
+  try {
+    await request(`/api/clearing-agents/${s.id}`, { method: "DELETE" });
+    notify("Clearing agent deleted");
+    await useData().loadAll();
+  } catch (e: any) {
+    notify(e.message, "error");
+  }
+};
+</script>
+
+<template>
+  <div class="page">
+    <div class="head">
+      <div>
+        <h1 class="ph">Clearing Agents</h1>
+        <p style="font-size: 12px; color: #64748b; margin-top: 3px">Customs brokers who clear goods at the port, airport or border</p>
+      </div>
+      <div class="head-acts">
+        <IfExportMenu kind="agents" :params="{ q: search }" />
+        <button v-if="canEdit" class="btn btn-accent" @click="openNew"><UiIcon name="plus" :size="15" /> New Agent</button>
+      </div>
+    </div>
+
+    <div class="filters">
+      <div class="search-wrap">
+        <span class="search-ic"><UiIcon name="search" :size="14" /></span>
+        <input v-model="search" class="inp" placeholder="Search by name, contact or country" style="padding-left: 32px" aria-label="Search clearing agents" />
+      </div>
+    </div>
+    <div class="count">{{ filtered.length === agents.length ? `${agents.length} agents` : `${filtered.length} of ${agents.length} agents` }}</div>
+
+    <div class="list">
+      <div v-for="s in filtered" :key="s.id" class="ship-card">
+        <div style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+          <div style="min-width: 0">
+            <div class="s-top">
+              <h2 class="s-name">{{ s.name }}</h2>
+              <span class="chip" style="background: #f0f9ff; color: #0369a1">{{ s.category || "N/A" }}</span>
+              <span class="chip" style="background: #f8fafc; color: #475569">{{ COUNTRY_FLAGS[s.country] || "🌍" }} {{ s.country || "N/A" }}</span>
+            </div>
+            <div class="s-meta">
+              <span v-if="s.contact" class="mi"><UiIcon name="user" :size="13" /> {{ s.contact }}</span>
+              <a v-if="s.email" class="mi" :href="`mailto:${s.email}`"><UiIcon name="mail" :size="13" /> {{ s.email }}</a>
+              <a v-if="s.phone" class="mi" :href="`tel:${s.phone.replace(/\s/g, '')}`"><UiIcon name="phone" :size="13" /> {{ s.phone }}</a>
+            </div>
+            <p v-if="s.notes" class="s-notes">"{{ s.notes }}"</p>
+            <div style="font-size: 11px; color: #64748b; margin-top: 6px">
+              <template v-if="usage(s.id).n">{{ usage(s.id).n }} shipment{{ usage(s.id).n === 1 ? "" : "s" }}<template v-if="usage(s.id).open"> ({{ usage(s.id).open }} open)</template> · billed ${{ Math.round(usage(s.id).usd).toLocaleString() }} · </template>Added {{ fmtDate(s.created) }}
+            </div>
+          </div>
+          <div v-if="canEdit" class="s-actions">
+            <UiMenu :label="`Actions for ${s.name}`" :items="[
+              { label: 'Edit agent', icon: 'edit', onClick: () => openEdit(s) },
+              { label: 'Delete agent', icon: 'trash', danger: true, onClick: () => remove(s) },
+            ]" />
+          </div>
+        </div>
+      </div>
+      <div v-if="!filtered.length" class="empty">No clearing agents match your search</div>
+    </div>
+
+    <UiAppModal :open="showForm" :dirty="dirty" :title="editing ? 'Edit Clearing Agent' : 'New Clearing Agent'" :width="520" @close="showForm = false">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px">
+        <div style="grid-column: span 2">
+          <label class="lbl">Company Name *</label>
+          <input v-model="form.name" class="inp" placeholder="Apapa Clearing & Forwarding Ltd" />
+        </div>
+        <div><label class="lbl">Contact</label><input v-model="form.contact" class="inp" placeholder="Chinedu Okeke" /></div>
+        <div><label class="lbl">Email</label><input v-model="form.email" class="inp" type="email" /></div>
+        <div><label class="lbl">Phone</label><input v-model="form.phone" class="inp" placeholder="+234 803" /></div>
+        <div><label class="lbl">Country</label><input v-model="form.country" class="inp" placeholder="Nigeria" /></div>
+        <div style="grid-column: span 2">
+          <label class="lbl">Type</label>
+          <select v-model="form.category" class="inp">
+            <option value="" disabled>Select type...</option>
+            <option v-for="t in SHIPPER_TYPES" :key="t" :value="t">{{ t }}</option>
+          </select>
+        </div>
+        <div style="grid-column: span 2">
+          <label class="lbl">Notes</label>
+          <textarea v-model="form.notes" class="inp" rows="2" style="resize: vertical"></textarea>
+        </div>
+      </div>
+      <div v-if="err" style="margin-top: 10px; padding: 8px 12px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 7px; font-size: 12px; color: #dc2626; font-weight: 600">{{ err }}</div>
+      <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px">
+        <button class="btn btn-secondary" @click="showForm = false">Cancel</button>
+        <button class="btn btn-accent" :disabled="saving" @click="save">{{ saving ? "Saving…" : editing ? "Save Changes" : "Add Agent" }}</button>
+      </div>
+    </UiAppModal>
+  </div>
+</template>
+
+<style scoped>
+.page { max-width: 1100px; margin: 0 auto; padding: 22px 26px; animation: fadeIn .3s; }
+.head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px; }
+.ph { font-size: 20px; font-weight: 800; }
+.filters { display: flex; gap: 10px; margin-bottom: 16px; }
+.search-wrap { flex: 1; min-width: 180px; position: relative; }
+.search-ic { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b; display: flex; }
+.list { display: grid; gap: 12px; }
+.ship-card { background: #fff; border-radius: 12px; padding: 18px 22px; border: 1px solid #f1f5f9; transition: all .15s; }
+.ship-card:hover { border-color: #a5f3fc; }
+.s-top { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; flex-wrap: wrap; }
+.s-name { font-size: 15px; font-weight: 700; margin: 0; }
+.s-meta { font-size: 12px; color: #64748b; line-height: 1.7; display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.s-notes { font-size: 11.5px; color: #64748b; font-style: italic; margin-top: 4px; }
+.s-actions { display: flex; gap: 6px; align-items: flex-start; flex-shrink: 0; }
+.count { font-size: 12px; color: #64748b; margin: -6px 0 12px; }
+.mi { display: inline-flex; align-items: center; gap: 5px; }
+.s-meta a { color: inherit; text-decoration: none; }
+.s-meta a:hover { color: var(--primary); }
+.empty { text-align: center; padding: 40px; color: #64748b; background: #fff; border-radius: 12px; border: 1px dashed #e2e8f0; }
+</style>

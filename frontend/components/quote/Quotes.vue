@@ -59,9 +59,12 @@ const listQuery = computed(() => {
   return q;
 });
 watch(listQuery, (q) => { if (view.value === "list") router.replace({ query: q }); });
+// totals in naira so quotes in different currencies can be added and compared
+const ngnOf = (q: any) => Number(q?.totalNgn ?? (q?.total || 0) * (q?.fxRate || 1)) || 0;
+const mixed = computed(() => quotes.value.some((q: any) => (q.currency || "NGN") !== "NGN"));
 const SORTS: Record<string, (a: any, b: any) => number> = {
   updated: (a, b) => (b.updated || 0) - (a.updated || 0),
-  total: (a, b) => (b.total || 0) - (a.total || 0),
+  total: (a, b) => ngnOf(b) - ngnOf(a),
   number: (a, b) => String(b.number).localeCompare(String(a.number)),
 };
 const filtered = computed(() =>
@@ -77,7 +80,8 @@ const filtered = computed(() =>
   })
 );
 
-const fmtN = (n: number) => "₦" + Math.round(n || 0).toLocaleString("en-NG");
+const money = useMoney();
+const fmtN = (n: number, code = "NGN") => money.fmt(n, code);
 
 const blankItem = (): any => ({
   id: Math.random().toString(36).slice(2, 10),
@@ -100,6 +104,7 @@ const startNew = () => {
     items: [blankItem()],
     markupPct: s.defaultMarkup ?? 100,
     vatPct: s.vatRate ?? 7.5,
+    currency: "NGN", fxRate: 1,
   };
 };
 
@@ -119,6 +124,7 @@ const startEdit = async (id: string) => {
       },
       items: JSON.parse(JSON.stringify(latest.items || [])),
       markupPct: latest.markupPct, vatPct: latest.vatPct,
+      currency: latest.currency || "NGN", fxRate: latest.fxRate || 1,
     };
   } catch (e: any) {
     notify(e.message, "error");
@@ -138,6 +144,8 @@ watch(
     else if (v !== "new" && v !== "edit") editing.value = null;
     // returning to the list refreshes it (the first load happens on mount)
     if (old && (v === "list" || !v) && old[0] !== v) load();
+    // leaving the rate card: pick up any new glass, panels or charges
+    else if (old && old[0] === "rates" && v !== "rates") loadCatalog().catch(() => {});
   },
   { immediate: true }
 );
@@ -189,8 +197,8 @@ const stats = computed(() => {
   const won = qs.filter((q) => q.status === "won");
   return {
     count: qs.length,
-    pipeline: qs.filter((q) => ["draft", "sent"].includes(q.status)).reduce((s, q) => s + (q.total || 0), 0),
-    wonValue: won.reduce((s, q) => s + (q.total || 0), 0),
+    pipeline: qs.filter((q) => ["draft", "sent"].includes(q.status)).reduce((s, q) => s + ngnOf(q), 0),
+    wonValue: won.reduce((s, q) => s + ngnOf(q), 0),
     wonCount: won.length,
   };
 });
@@ -215,8 +223,8 @@ const cancelled = () => (props.routeId ? router.push(`/platform/quotes/${props.r
 
     <div class="stats">
       <div class="stat"><div class="stat-v">{{ stats.count }}</div><div class="stat-l">Quotes</div></div>
-      <div class="stat"><div class="stat-v">{{ fmtN(stats.pipeline) }}</div><div class="stat-l">Open pipeline</div></div>
-      <div class="stat"><div class="stat-v">{{ fmtN(stats.wonValue) }}</div><div class="stat-l">Won value</div></div>
+      <div class="stat"><div class="stat-v">{{ fmtN(stats.pipeline) }}</div><div class="stat-l">Open pipeline<span v-if="mixed"> (in ₦)</span></div></div>
+      <div class="stat"><div class="stat-v">{{ fmtN(stats.wonValue) }}</div><div class="stat-l">Won value<span v-if="mixed"> (in ₦)</span></div></div>
       <div class="stat"><div class="stat-v">{{ stats.wonCount }}</div><div class="stat-l">Jobs won</div></div>
     </div>
 
@@ -265,7 +273,7 @@ const cancelled = () => (props.routeId ? router.push(`/platform/quotes/${props.r
                 <td>{{ q.projectName || "—" }}</td>
                 <td>{{ q.salesPerson || "—" }}</td>
                 <td><span class="chip" :style="{ background: statusChip(q.status).bg, color: statusChip(q.status).fg }">{{ statusChip(q.status).label }}</span></td>
-                <td style="text-align: right" class="strong">{{ fmtN(q.total) }}</td>
+                <td style="text-align: right" class="strong">{{ fmtN(q.total, q.currency) }}</td>
                 <td class="dim">{{ fmtD(q.updated) }}</td>
                 <td @click.stop><UiMenu :items="rowMenu(q)" :label="`Actions for ${q.number}`" /></td>
               </tr>
@@ -282,7 +290,7 @@ const cancelled = () => (props.routeId ? router.push(`/platform/quotes/${props.r
             <span class="mc-client">{{ q.clientName || "No client name" }}</span>
             <span class="mc-bot">
               <span class="dim">{{ q.salesPerson || "—" }} · {{ fmtD(q.updated) }}</span>
-              <span class="strong">{{ fmtN(q.total) }}</span>
+              <span class="strong">{{ fmtN(q.total, q.currency) }}</span>
             </span>
           </button>
         </div>

@@ -42,6 +42,12 @@ const sell = (it: any) => Math.round((Number(it?.bom?.total) || 0) * (1 + (Numbe
 const unit = (it: any) => Math.round(sell(it) / Math.max(1, Number(it?.qty) || 1));
 const sumBom = (key: string): number =>
   (rev.value?.items || []).reduce((t: number, it: any) => t + (Number(it?.bom?.[key]) || 0), 0);
+// Rate-card extra charges, summed by name across items
+const extrasTotals = computed(() => {
+  const m = new Map<string, number>();
+  for (const it of rev.value?.items || []) for (const x of it?.bom?.extras || []) m.set(x.name, (m.get(x.name) || 0) + (Number(x.cost) || 0));
+  return [...m].map(([name, cost]) => ({ name, cost }));
+});
 const marginPct = computed(() => (rev.value?.sub ? Math.round(((rev.value.mkAmt || 0) / rev.value.sub) * 1000) / 10 : 0));
 
 // ---- status: one menu, reason required for Won/Lost, 10s undo ----
@@ -51,19 +57,26 @@ const outcomeNote = ref("");
 const outcomeErr = ref("");
 const saving = ref(false);
 
-const postStatus = (status: string, note = "") =>
-  request(`/api/quotes/${props.quoteId}/revisions/${rev.value!.id}/status`, { method: "POST", body: { status, note } });
+const postStatus = (status: string, note = "", project: any = null) =>
+  request(`/api/quotes/${props.quoteId}/revisions/${rev.value!.id}/status`, { method: "POST", body: { status, note, project } });
 
-const setStatus = async (status: string, note = "") => {
+// Won → ImportFlow project: create one, link an existing one, or skip
+const projMode = ref<"create" | "link" | "none">("create");
+const projName = ref("");
+const projLink = ref("");
+const projects = ref<any[]>([]);
+
+const setStatus = async (status: string, note = "", project: any = null) => {
   if (!rev.value) return;
   const prev = rev.value.status;
   const prevNote = rev.value.statusNote || "";
   const label = { draft: "draft", sent: "sent", won: "won", lost: "lost" }[status];
   try {
-    await postStatus(status, note);
+    await postStatus(status, note, project);
     await load();
     emit("changed");
-    notify(`${quote.value.number} marked ${label}`, "success", {
+    const pmsg = project?.mode === "create" ? ` and project "${quote.value.projectName}" created` : project?.mode === "link" ? ` and linked to ${quote.value.projectName}` : "";
+    notify(`${quote.value.number} marked ${label}${pmsg}`, "success", {
       action: {
         label: "Undo",
         fn: async () => {
@@ -86,15 +99,29 @@ const openOutcome = (o: "won" | "lost") => {
   outcome.value = o;
   outcomeNote.value = "";
   outcomeErr.value = "";
+  projMode.value = quote.value?.projectId ? "none" : "create";
+  projName.value = quote.value?.clientName || "";
+  projLink.value = "";
   outcomeOpen.value = true;
+  if (o === "won" && !quote.value?.projectId) request<any[]>("/api/projects").then((p) => (projects.value = p.filter((x) => x.status !== "Completed"))).catch(() => {});
 };
 const saveOutcome = async () => {
   if (!outcomeNote.value.trim()) {
     outcomeErr.value = outcome.value === "won" ? "Add the PO number or a short note" : "Add the reason it was lost";
     return;
   }
+  let project: any = null;
+  if (outcome.value === "won" && !quote.value?.projectId) {
+    if (projMode.value === "create") {
+      if (!projName.value.trim()) { outcomeErr.value = "Give the new project a name"; return; }
+      project = { mode: "create", name: projName.value.trim() };
+    } else if (projMode.value === "link") {
+      if (!projLink.value) { outcomeErr.value = "Choose the project to link"; return; }
+      project = { mode: "link", projectId: projLink.value };
+    }
+  }
   saving.value = true;
-  await setStatus(outcome.value, outcomeNote.value.trim());
+  await setStatus(outcome.value, outcomeNote.value.trim(), project);
   saving.value = false;
   outcomeOpen.value = false;
 };
@@ -110,11 +137,26 @@ const statusMenu = computed(() => {
   return items;
 });
 
-const fmtN = (n: number) => "₦" + Math.round(n || 0).toLocaleString("en-NG");
+const money = useMoney();
+const code = computed(() => rev.value?.currency || "NGN");
+const fmtN = (n: number) => money.fmt(n, code.value);
+const ngnTotal = computed(() => "₦" + Math.round((rev.value?.total || 0) * (rev.value?.fxRate || 1)).toLocaleString("en-NG"));
 const fmtD = (ms: number) => new Date(ms).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 const size = (it: any) => (it.product === "balustrade" ? `${it.length} m × ${it.height}` : `${it.width} × ${it.height}`);
 
-const printQuote = () => window.print();
+const pdfBusy = ref(false);
+const exportPdf = async () => {
+  if (!rev.value) return;
+  pdfBusy.value = true;
+  try {
+    const { blob, filename } = await download(`/api/quotes/${props.quoteId}/pdf?rev_id=${rev.value.id}`);
+    saveBlob(blob, filename || `${quote.value?.number || "quote"}-Rev${rev.value.rev}.pdf`);
+  } catch (e: any) {
+    notify(e.message, "error");
+  } finally {
+    pdfBusy.value = false;
+  }
+};
 const exporting = ref(false);
 const exportExcel = async (internal = false) => {
   if (!rev.value) return;
@@ -164,7 +206,7 @@ const chip: any = {
         </div>
         <div class="actions">
           <button class="btn" :disabled="exporting" title="Client workbook: selling prices only" @click="exportExcel(false)"><UiIcon name="download" :size="14" /> {{ exporting ? "Exporting…" : "Excel" }}</button>
-          <button class="btn" @click="printQuote"><UiIcon name="print" :size="14" /> Print</button>
+          <button class="btn" :disabled="pdfBusy" title="Client PDF, styled by PDF Design" @click="exportPdf"><UiIcon name="pdf" :size="14" /> {{ pdfBusy ? "Preparing…" : "PDF" }}</button>
           <button class="btn" @click="emit('edit', quote)"><UiIcon name="edit" :size="14" /> Edit</button>
           <button v-if="isLatest && rev?.status === 'draft'" class="btn primary" @click="setStatus('sent')"><UiIcon name="send" :size="14" /> Mark as sent</button>
           <UiMenu v-if="isLatest && statusMenu.length" :items="statusMenu" label="Change status">
@@ -295,6 +337,7 @@ const chip: any = {
             <div v-if="sumBom('mosqCost')" class="brow"><span>Mosquito nets</span><strong>{{ fmtN(sumBom('mosqCost')) }}</strong></div>
             <div v-if="sumBom('subframeCost')" class="brow"><span>Sub-frames</span><strong>{{ fmtN(sumBom('subframeCost')) }}</strong></div>
             <div v-if="sumBom('sealantCost')" class="brow"><span>Sealant</span><strong>{{ fmtN(sumBom('sealantCost')) }}</strong></div>
+            <div v-for="x in extrasTotals" :key="x.name" class="brow"><span>{{ x.name }}</span><strong>{{ fmtN(x.cost) }}</strong></div>
             <div class="brow tot"><span>Total cost</span><strong>{{ fmtN(rev?.cost) }}</strong></div>
             <div v-if="quote.notes" class="notes">
               <div class="card-t" style="margin-top: 14px">Internal notes</div>
@@ -310,6 +353,9 @@ const chip: any = {
               <div><span>Gross profit</span><strong>{{ fmtN(rev?.mkAmt) }}</strong></div>
               <div><span>Gross margin</span><strong>{{ marginPct }}%</strong></div>
             </div>
+            <p v-if="code !== 'NGN'" class="fxnote">
+              Quoted in {{ code }} at {{ money.rateText(code, rev?.fxRate) }}. Grand total ≈ {{ ngnTotal }}.
+            </p>
           </div>
         </div>
       </template>
@@ -326,6 +372,19 @@ const chip: any = {
           <span class="lbl2">{{ outcome === "won" ? "PO number or note" : "Why was it lost?" }}</span>
           <input v-model="outcomeNote" class="inp" :placeholder="outcome === 'won' ? 'e.g. PO-4471, signed 8 Oct' : 'e.g. Lost on price to competitor'" maxlength="500" />
         </label>
+        <fieldset v-if="outcome === 'won' && !quote?.projectId" class="pj">
+          <legend class="lbl2">Import Flow project</legend>
+          <label class="pj-opt"><input v-model="projMode" type="radio" value="create" /> Create a new project</label>
+          <input v-if="projMode === 'create'" v-model="projName" class="inp pj-in" maxlength="120" placeholder="Project name" aria-label="New project name" />
+          <label class="pj-opt"><input v-model="projMode" type="radio" value="link" :disabled="!projects.length" /> Link to an existing project</label>
+          <select v-if="projMode === 'link'" v-model="projLink" class="inp pj-in" aria-label="Project to link">
+            <option value="" disabled>Choose project…</option>
+            <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}{{ p.client ? ` · ${p.client}` : "" }}</option>
+          </select>
+          <label class="pj-opt"><input v-model="projMode" type="radio" value="none" /> Not now</label>
+          <p class="pj-hint">The project's budget-vs-actual uses this quote's value; goods you import for it count as its costs.</p>
+        </fieldset>
+        <p v-else-if="outcome === 'won' && quote?.projectName" class="pj-hint">Already linked to project <strong>{{ quote.projectName }}</strong>.</p>
         <div v-if="outcomeErr" class="err2" role="alert">{{ outcomeErr }}</div>
         <div class="m-actions">
           <button type="button" class="btn" @click="outcomeOpen = false">Cancel</button>
@@ -389,7 +448,7 @@ const chip: any = {
           <span>Transport &amp; logistics{{ rev.logisticsLocation ? ` to ${rev.logisticsLocation}` : "" }}</span>
           <span>{{ fmtN(rev.logisticsCost) }}</span>
         </div>
-        <div class="pz-tr grand"><span>GRAND TOTAL (NGN)</span><span>{{ fmtN(rev.total) }}</span></div>
+        <div class="pz-tr grand"><span>GRAND TOTAL ({{ code }})</span><span>{{ fmtN(rev.total) }}</span></div>
       </div>
       <div class="pz-terms">
         <div class="pz-l">PAYMENT TERMS</div>
@@ -403,6 +462,13 @@ const chip: any = {
 </template>
 
 <style scoped>
+.pj { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; margin: 0; }
+.pj legend { padding: 0 4px; }
+.pj-opt { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #334155; cursor: pointer; }
+.pj-opt input { accent-color: #16a34a; }
+.pj-in { margin: 0 0 4px 24px; width: calc(100% - 24px); }
+.pj-hint { font-size: 11.5px; color: #64748b; margin: 2px 0 0; }
+.fxnote { margin-top: 12px; padding: 8px 10px; background: #eff6ff; border-radius: 8px; font-size: 12px; color: #1e3a8a; font-weight: 600; }
 .wrap { padding: 22px; max-width: 1200px; margin: 0 auto; }
 .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
 .back { display: inline-flex; align-items: center; gap: 5px; border: none; background: none; color: var(--primary); font-family: inherit; font-size: 12px; font-weight: 700; cursor: pointer; padding: 0; margin-bottom: 6px; }

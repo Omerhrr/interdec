@@ -24,6 +24,18 @@ const canEdit = computed(() => role.value === "admin" || role.value === "user");
 const { toUsd } = useData();
 const fmtUsd = (n: number) => "$ " + Math.round(n).toLocaleString();
 
+// budget vs actual for every project (naira), refreshed when shipments change
+const budgets = ref<Record<string, any>>({});
+const loadBudgets = async () => {
+  try { budgets.value = await request("/api/projects/budgets"); } catch { /* card just stays hidden */ }
+};
+onMounted(loadBudgets);
+watch(() => shipments.value.map((s: any) => s.updated).join(), loadBudgets);
+const shortN = (n: number) => {
+  const a = Math.abs(n || 0);
+  return (n < 0 ? "−₦" : "₦") + (a >= 1e9 ? (a / 1e9).toFixed(2) + "B" : a >= 1e6 ? (a / 1e6).toFixed(1) + "M" : a >= 1e3 ? Math.round(a / 1e3) + "K" : Math.round(a));
+};
+
 const filtered = computed(() =>
   projects.value.filter((p) => {
     const q = search.value.toLowerCase();
@@ -94,7 +106,10 @@ const detailShipments = computed(() =>
 <template>
   <!-- DETAIL -->
   <div v-if="detail === 'detail' && detailProject" class="page">
-    <button class="back-link" @click="emit('navigate', 'projects', null, null)">← Projects</button>
+    <div class="topbar">
+      <button class="back-link" @click="emit('navigate', 'projects', null, null)">← Projects</button>
+      <IfExportMenu kind="project" :params="{ id: detailProject.id }" />
+    </div>
 
     <div class="card" style="margin-bottom: 14px">
       <div style="display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap">
@@ -113,6 +128,8 @@ const detailShipments = computed(() =>
         </div>
       </div>
     </div>
+
+    <IfProjectBudget :budget="budgets[detailProject.id] || null" />
 
     <div class="head" style="margin-bottom: 12px">
       <h2 style="font-size: 14px; font-weight: 700; color: #475569">Shipments ({{ detailShipments.length }})</h2>
@@ -171,7 +188,10 @@ const detailShipments = computed(() =>
   <div v-else class="page">
     <div class="head">
       <h1 class="ph">Projects</h1>
-      <button v-if="canEdit" class="btn btn-accent" @click="openNew"><UiIcon name="plus" :size="15" /> New Project</button>
+      <div class="head-acts">
+        <IfExportMenu kind="projects" :params="{ status: statusFilter, q: search }" />
+        <button v-if="canEdit" class="btn btn-accent" @click="openNew"><UiIcon name="plus" :size="15" /> New Project</button>
+      </div>
     </div>
 
     <div class="filters">
@@ -208,6 +228,9 @@ const detailShipments = computed(() =>
             <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase">Shipments</div>
             <div class="mono" style="font-size: 12px; font-weight: 600; color: #475569; margin-top: 4px">
               {{ fmtUsd(shipments.filter((s) => s.projectId === p.id).reduce((a, s) => a + toUsd(s), 0)) }}
+            </div>
+            <div v-if="budgets[p.id]?.contract" class="mg" :class="{ neg: budgets[p.id].margin < 0 }" :title="`Contract ${shortN(budgets[p.id].contract)} · spent ${shortN(budgets[p.id].spent)}`">
+              Margin {{ budgets[p.id].marginPct }}%
             </div>
           </div>
         </div>
@@ -248,6 +271,8 @@ const detailShipments = computed(() =>
 .search-wrap { flex: 1; min-width: 180px; position: relative; }
 .search-ic { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: #64748b; display: flex; }
 .p-list { display: grid; gap: 12px; }
+.mg { margin-top: 6px; font-size: 11px; font-weight: 800; color: #047857; background: #ecfdf5; border-radius: 20px; padding: 2px 8px; display: inline-block; }
+.mg.neg { color: #b91c1c; background: #fef2f2; }
 .p-card { background: #fff; border-radius: 12px; padding: 18px 22px; border: 1px solid #f1f5f9; cursor: pointer; transition: all .15s; }
 .p-card:hover { border-color: #c7d2fe; }
 .sh-list { display: grid; gap: 10px; }

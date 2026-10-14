@@ -10,6 +10,21 @@ services:
         generateValue: true   # signs login tokens; Render creates a random one
       - key: INTERDEC_DATABASE_URL
         value: sqlite:////var/data/interdec.db
+      # ETA email alerts: fill these in on Render (Environment tab); see README
+      - key: INTERDEC_SMTP_HOST
+        sync: false
+      - key: INTERDEC_SMTP_PORT
+        value: "587"
+      - key: INTERDEC_SMTP_USER
+        sync: false
+      - key: INTERDEC_SMTP_PASSWORD
+        sync: false
+      - key: INTERDEC_SMTP_FROM
+        sync: false
+      - key: INTERDEC_APP_URL
+        sync: false
+      - key: INTERDEC_TZ
+        value: Africa/Lagos
     disk:
       name: data
       mountPath: /var/data

@@ -16,7 +16,18 @@ const onInput = (e: Event) => {
   const clean = raw.replace(/[^\d.-]/g, "");
   emit("update:modelValue", clean === "" || clean === "-" ? null : Number(clean));
 };
-const onFocus = () => { focused.value = true; text.value = props.modelValue == null ? "" : String(props.modelValue); };
+// switch to raw digits synchronously (so nothing typed straight after focus is
+// overwritten by a later re-render), then select it so typing replaces the value
+const onFocus = (e: FocusEvent) => {
+  const el = e.target as HTMLInputElement;
+  focused.value = true;
+  const raw = props.modelValue == null ? "" : String(props.modelValue);
+  if (el.value !== raw && el.value === text.value) {
+    el.value = raw;
+    el.select(); // changing the value drops any selection; restore "replace on type"
+  }
+  text.value = el.value;
+};
 const onBlur = () => { focused.value = false; text.value = fmt(props.modelValue); };
 </script>
 

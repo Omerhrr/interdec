@@ -10,6 +10,7 @@ the item card ("Total Price"). We derive the per-unit selling price instead
 (line / qty) so unit price x qty == line amount exactly.
 """
 import io
+from contextvars import ContextVar
 from datetime import datetime
 
 from openpyxl import Workbook
@@ -24,8 +25,26 @@ HDR_BLUE = "2A4A6B"
 TOTAL_BG = "E2EFDA"
 GREY = "607080"
 FONT = "Calibri"
-NGN_FMT = '"\u20a6"#,##0'
-NGN2_FMT = '"\u20a6"#,##0.00'
+SYMBOLS = {"NGN": "\u20a6", "USD": "$", "EUR": "\u20ac", "GBP": "\u00a3", "JPY": "\u00a5", "CNY": "\u00a5",
+           "ILS": "\u20aa", "AED": "AED ", "GHS": "GH\u20b5", "ZAR": "R", "KES": "KSh "}
+# currency symbol of the workbook being built (set per export; safe across threads)
+_SYM = ContextVar("excel_currency_symbol", default="\u20a6")
+
+
+def symbol(code):
+    code = (code or "NGN").upper()
+    return SYMBOLS.get(code, code + " ")
+
+
+def _money(decimals=False, sym=None):
+    s = (sym if sym is not None else _SYM.get()).replace('"', "")
+    if s.strip() not in ("\u20a6", "\u00a5"):
+        decimals = True  # foreign-currency quotes are priced to the cent
+    return f'"{s}"#,##0' + (".00" if decimals else "")
+
+
+def _sym_label():
+    return _SYM.get().strip()
 
 
 def _fmt_date(ms):
@@ -61,8 +80,9 @@ def _s(v, bold=False, sz=11, color=None, bg=None, halign=None, wrap=False, fmt=N
     return c
 
 
-def _n(v, bold=False, fmt=NGN_FMT, bg=None, halign="right"):
-    """Numeric cell."""
+def _n(v, bold=False, fmt=None, bg=None, halign="right"):
+    """Numeric cell (money in the workbook's currency unless fmt is given)."""
+    fmt = fmt or _money()
     st = {"font": _f(bold)}
     if bg:
         st["fill"] = _fill(bg)
@@ -142,7 +162,7 @@ class _Sheet:
         return ws
 
 
-def _item_cards(sh, items, markup):
+def _item_cards(sh, items, markup, types=None):
     """Stacked item cards (rows of labelled fields), like the legacy layout."""
     CARD = 13
     LA, LF = 1, 6
@@ -166,7 +186,7 @@ def _item_cards(sh, items, markup):
             ("Position", it.get("position") or "\u2014", "s", False),
             ("Element Size", size, "s", False),
             ("Description", it.get("desc") or pricing.auto_desc(it), "s", True),
-            ("System", (pricing._prod_by_id(it.get("product")) or {}).get("label") or "\u2014", "s", False),
+            ("System", ((types or pricing.Types()).prod(it.get("product")) or {}).get("label") or "\u2014", "s", False),
             ("Profile Colour", "To be determined", "s", False),
             ("Sub-Frame", "Yes" if sub_ok else "\u2014", "s", False),
             ("Glazing", it.get("glassLabel") or "N/A", "s", True),
@@ -187,7 +207,7 @@ def _item_cards(sh, items, markup):
                 sh.put(r, 3, cell)
                 sh.merge(r, 3, r, LF)
             elif kind == "t":
-                sh.put(r, 3, _n(val, True, NGN2_FMT))
+                sh.put(r, 3, _n(val, True, _money(True)))
                 sh.merge(r, 3, r, LF)
             else:
                 sh.put(r, 3, _s(val, False, 11, None, None, "left", wrap))
@@ -202,7 +222,7 @@ def _summary_block(sh, sum_start, items, markup, vat, rev):
     sh.put(sum_start, LA, _s("SUMMARY", True, 12, "FFFFFF", NAVY))
     sh.merge(sum_start, LA, sum_start, LF)
     headers = [("DESCRIPTION", "left"), ("NO.", "center"), ("POSITION", "center"),
-               ("QTY", "center"), ("RATE (\u20a6)", "right"), ("AMOUNT (\u20a6)", "right")]
+               ("QTY", "center"), (f"RATE ({_sym_label()})", "right"), (f"AMOUNT ({_sym_label()})", "right")]
     for ci, (h, ha) in enumerate(headers):
         sh.put(sum_start + 1, LA + ci, _b(_s(h, True, 11, "FFFFFF", HDR_BLUE, ha), "thin", "thin", "thin", "thin"))
     for i, it in enumerate(items):
@@ -236,7 +256,7 @@ def _summary_block(sh, sum_start, items, markup, vat, rev):
         fg = "FFFFFF" if gt else None
         sh.put(r, LA, _b(_s(lab, gt, 11, fg, bg, "right"), None, None, "thin", None))
         sh.merge(r, LA, r, 5)
-        sh.put(r, 6, _hb(_n(val, gt, NGN2_FMT if gt else "#,##0.00", bg), "hair", "hair", "thin", "thin"))
+        sh.put(r, 6, _hb(_n(val, gt, _money(True) if gt else "#,##0.00", bg), "hair", "hair", "thin", "thin"))
     return t_start + len(rows)
 
 
@@ -258,6 +278,14 @@ def _terms_block(sh, pt_start, rev, settings):
 
 
 def build_quote_workbook(quote: dict, rev: dict, catalog: dict, internal: bool = False) -> bytes:
+    token = _SYM.set(symbol(rev.get("currency")))
+    try:
+        return _build_quote_workbook(quote, rev, catalog, internal)
+    finally:
+        _SYM.reset(token)
+
+
+def _build_quote_workbook(quote: dict, rev: dict, catalog: dict, internal: bool = False) -> bytes:
     """Single-revision workbook. The client version holds the Work Breakdown only
     (selling prices); `internal=True` adds the BOM Details sheet with costs and
     markup, which must never be sent to a client."""
@@ -282,7 +310,7 @@ def build_quote_workbook(quote: dict, rev: dict, catalog: dict, internal: bool =
     sh.put(2, 1, _s(subtitle, False, 10, GREY))
     sh.merge(2, 1, 2, 6)
 
-    sum_start = _item_cards(sh, items, markup)
+    sum_start = _item_cards(sh, items, markup, pricing.Types((catalog or {}).get("products"), (catalog or {}).get("subs")))
     after_totals = _summary_block(sh, sum_start, items, markup, vat, rev)
     _terms_block(sh, after_totals + 1, rev, settings)
 
@@ -301,9 +329,9 @@ def build_quote_workbook(quote: dict, rev: dict, catalog: dict, internal: bool =
 
     # ---- BOM Details sheet (internal only) ----
     b = _Sheet()
-    b.max_c = 17
+    b.max_c = 18
     hdrs = ["#", "Pos.", "Description", "W (mm)", "H (mm)", "Area m\u00b2", "Profiles", "Glass/Panel",
-            "Gasket", "Sealant", "Hardware", "Sub-Frame", "Mosq. Net", "Fabrication", "Installation",
+            "Gasket", "Sealant", "Hardware", "Sub-Frame", "Mosq. Net", "Extras", "Fabrication", "Installation",
             "Total Cost", "Selling"]
     for ci, h in enumerate(hdrs, start=1):
         b.put(1, ci, _s(h, True, 11, "FFFFFF", NAVY, "center"))
@@ -321,7 +349,7 @@ def build_quote_workbook(quote: dict, rev: dict, catalog: dict, internal: bool =
             _n(bom.get("area"), False, "#,##0.00"),
             _n(bom.get("profileCost")), _n(bom.get("glassCost")), _n(bom.get("gasketCost")),
             _n(bom.get("sealantCost")), _n(bom.get("hwCost")), _n(bom.get("subframeCost")),
-            _n(bom.get("mosqCost")), _n(bom.get("fabCost")), _n(bom.get("instCost")),
+            _n(bom.get("mosqCost")), _n(bom.get("extrasCost")), _n(bom.get("fabCost")), _n(bom.get("instCost")),
             _n(bom.get("total"), True), _n(selling, True),
         ]
         for ci, cell in enumerate(vals, start=1):
@@ -330,18 +358,18 @@ def build_quote_workbook(quote: dict, rev: dict, catalog: dict, internal: bool =
     tr = 2 + n + 1
     sums = {}
     for key in ("area", "profileCost", "glassCost", "gasketCost", "sealantCost", "hwCost",
-                "subframeCost", "mosqCost", "fabCost", "instCost"):
+                "subframeCost", "mosqCost", "extrasCost", "fabCost", "instCost"):
         sums[key] = sum(round((it.get("bom") or {}).get(key) or 0) for it in items)
-    blank = [_e() for _ in range(17)]
+    blank = [_e() for _ in range(18)]
     for ci, cell in enumerate(blank, start=1):
         b.put(tr, ci, cell)
     b.put(tr, 3, _s("TOTALS", True, 11, None, TOTAL_BG))
     for ci, key in [(6, "area"), (7, "profileCost"), (8, "glassCost"), (9, "gasketCost"),
                     (10, "sealantCost"), (11, "hwCost"), (12, "subframeCost"), (13, "mosqCost"),
-                    (14, "fabCost"), (15, "instCost")]:
+                    (14, "extrasCost"), (15, "fabCost"), (16, "instCost")]:
         b.put(tr, ci, _n(sums[key], True, "#,##0.00" if key == "area" else "#,##0", TOTAL_BG))
-    b.put(tr, 16, _n(rev.get("cost"), True, "#,##0", TOTAL_BG))
-    b.put(tr, 17, _n(rev.get("sub"), True, "#,##0", TOTAL_BG))
+    b.put(tr, 17, _n(rev.get("cost"), True, "#,##0", TOTAL_BG))
+    b.put(tr, 18, _n(rev.get("sub"), True, "#,##0", TOTAL_BG))
     money_rows = [("Total Cost", rev.get("cost")), (f"Markup {markup:g}%", rev.get("mkAmt")),
                   ("Sub-Total", rev.get("sub")), (f"VAT {vat:g}%", rev.get("vatAmt"))]
     logistics = float(rev.get("logisticsCost") or 0)
@@ -350,18 +378,18 @@ def build_quote_workbook(quote: dict, rev: dict, catalog: dict, internal: bool =
         money_rows.insert(3, (f"Transport & Logistics{loc}", logistics))
     for ri, (lab, val) in enumerate(money_rows):
         r = tr + 1 + ri
-        for ci in range(1, 18):
+        for ci in range(1, 19):
             b.put(r, ci, _e())
-        b.put(r, 15, _s(lab, True, 11, None, TOTAL_BG, "right"))
-        b.put(r, 16, _n(val, True, NGN2_FMT, TOTAL_BG))
+        b.put(r, 16, _s(lab, True, 11, None, TOTAL_BG, "right"))
+        b.put(r, 17, _n(val, True, _money(True), TOTAL_BG))
     gr = tr + 1 + len(money_rows)
-    for ci in range(1, 18):
+    for ci in range(1, 19):
         b.put(gr, ci, _e())
-    b.put(gr, 15, _s("GRAND TOTAL", True, 12, "FFFFFF", NAVY, "right"))
-    b.put(gr, 16, {"v": round(rev.get("total") or 0, 2), "t": "n", "z": NGN2_FMT,
+    b.put(gr, 16, _s("GRAND TOTAL", True, 12, "FFFFFF", NAVY, "right"))
+    b.put(gr, 17, {"v": round(rev.get("total") or 0, 2), "t": "n", "z": _money(True),
                    "s": {"font": _f(True, 12, "FFD700"), "fill": _fill(NAVY)}})
     b.to_ws(wb, "BOM Details",
-            [28, 49, 238, 63, 63, 70, 98, 98, 84, 84, 84, 84, 77, 98, 98, 112, 112])
+            [28, 49, 238, 63, 63, 70, 98, 98, 84, 84, 84, 84, 77, 84, 98, 98, 112, 112])
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -379,14 +407,15 @@ def build_quotes_list_workbook(quotes: list) -> bytes:
     sh.put(2, 1, _s(f"Generated {_fmt_date(int(datetime.now().timestamp() * 1000))} \u00b7 {len(quotes)} quote(s)", False, 10, GREY))
     sh.merge(2, 1, 2, 12)
     hdrs = ["#", "Number", "Client", "Project", "Sales", "Status", "Rev", "Markup %", "VAT %",
-            "Logistics", "Total (\u20a6)", "Updated"]
+            "Logistics", "Total", "Updated"]
     for ci, h in enumerate(hdrs, start=1):
         sh.put(4, ci, _b(_s(h, True, 10, "FFFFFF", HDR_BLUE, "center"), "thin", "thin", "thin", "thin"))
     r = 5
     total_sum = 0
     for i, q in enumerate(quotes):
         latest = q.get("latest") or {}
-        total_sum += float(q.get("total") or 0)
+        total_sum += float(q.get("totalNgn", q.get("total")) or 0)
+        qfmt = _money(False, symbol(q.get("currency")))
         vals = [
             _n(i + 1, False, "#,##0", None, "center"),
             _s(q.get("number") or "", True),
@@ -397,16 +426,16 @@ def build_quotes_list_workbook(quotes: list) -> bytes:
             _n(latest.get("rev") if latest else 0, False, "0", None, "center"),
             _n(latest.get("markupPct") if latest else 0, False, "0.0\"%\"", None, "center"),
             _n(latest.get("vatPct") if latest else 0, False, "0.0\"%\"", None, "center"),
-            _n(latest.get("logisticsCost") if latest else 0),
-            _n(q.get("total"), True),
+            _n(latest.get("logisticsCost") if latest else 0, False, qfmt),
+            _n(q.get("total"), True, qfmt),
             _s(_fmt_date(q.get("updated"))),
         ]
         for ci, cell in enumerate(vals, start=1):
             sh.put(r, ci, cell)
         r += 1
-    sh.put(r, 1, _b(_s("TOTAL", True, 11, "FFFFFF", NAVY, "right"), "thin", None, "thin", "thin"))
+    sh.put(r, 1, _b(_s("TOTAL (all quotes in \u20a6 at each quote's exchange rate)", True, 11, "FFFFFF", NAVY, "right"), "thin", None, "thin", "thin"))
     sh.merge(r, 1, r, 11)
-    sh.put(r, 12, _hb(_n(total_sum, True), "hair", "hair", "thin", "thin"))
+    sh.put(r, 12, _hb(_n(total_sum, True, _money(False, "\u20a6")), "hair", "hair", "thin", "thin"))
     sh.to_ws(wb, "Quotes", [28, 110, 170, 170, 140, 80, 42, 70, 60, 100, 130, 90])
 
     # Revisions detail sheet
@@ -418,12 +447,13 @@ def build_quotes_list_workbook(quotes: list) -> bytes:
     r = 2
     for q in quotes:
         for rev in q.get("revisions") or []:
+            m = _money(False, symbol(rev.get("currency")))
             cells = [
                 _s(q.get("number") or "", True), _n(rev.get("rev"), False, "0", None, "center"),
                 _s((rev.get("status") or "").capitalize()),
                 _n(len(rev.get("items") or []), False, "0", None, "center"),
-                _n(rev.get("cost")), _n(rev.get("mkAmt")), _n(rev.get("sub")),
-                _n(rev.get("vatAmt")), _n(rev.get("logisticsCost")), _n(rev.get("total"), True),
+                _n(rev.get("cost"), False, m), _n(rev.get("mkAmt"), False, m), _n(rev.get("sub"), False, m),
+                _n(rev.get("vatAmt"), False, m), _n(rev.get("logisticsCost"), False, m), _n(rev.get("total"), True, m),
             ]
             for ci, cell in enumerate(cells, start=1):
                 b.put(r, ci, cell)
