@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Vendors page - CRUD + PDF catalogue upload (also powers Catalogues view-only mode)
-const props = defineProps<{ readonly?: boolean; catalogues?: boolean }>();
+const props = defineProps<{ readonly?: boolean; catalogues?: boolean; catalogManager?: boolean }>();
 const { vendors } = useData();
 const { CATEGORIES, COUNTRY_FLAGS, fmtSize, fmtDate } = useConstants();
 const notify = inject<(m: string, t?: string) => void>("notify")!;
@@ -10,6 +10,8 @@ const { importflowRole } = useAuth();
 
 // In ImportFlow, reports viewers are read-only; Catalogues passes readonly explicitly
 const viewOnly = computed(() => props.readonly || !["admin", "user"].includes(importflowRole.value));
+// uploading/removing PDFs: in the Catalogues app that's the Catalogues role
+const catEdit = computed(() => (props.catalogues ? !!props.catalogManager : !viewOnly.value));
 const MAX_MB = 15;
 
 const search = ref("");
@@ -176,11 +178,11 @@ const viewCatalog = async (i: number) => {
     <div class="head">
       <div>
         <h1 class="ph">{{ props.readonly || catalogues ? "Catalogues" : "Vendors" }}</h1>
-        <p v-if="viewOnly && catalogues" style="font-size: 12px; color: #64748b; margin-top: 3px">
+        <p v-if="!catEdit && catalogues" style="font-size: 12px; color: #64748b; margin-top: 3px">
           Browse &amp; download vendor product catalogues
         </p>
-        <p v-else-if="catalogues && !viewOnly" style="font-size: 12px; color: #64748b; margin-top: 3px">
-          Admin access: manage vendors, upload and organise PDF catalogues
+        <p v-else-if="catalogues && catEdit" style="font-size: 12px; color: #64748b; margin-top: 3px">
+          You can upload and remove PDF catalogues
         </p>
       </div>
       <div class="head-acts">
@@ -225,7 +227,7 @@ const viewCatalog = async (i: number) => {
               <span v-if="v.address" class="mi"><UiIcon name="pin" :size="13" /> {{ v.address }}</span>
             </div>
             <p v-if="v.notes" class="v-notes">"{{ v.notes }}"</p>
-            <div v-if="v.catalogs?.length || !viewOnly" class="v-cats">
+            <div v-if="v.catalogs?.length || catEdit" class="v-cats">
               <button v-if="v.catalogs?.length" class="cat-pill" @click="openCatalogs(v)">
                 <UiIcon name="folder" :size="13" /> {{ v.catalogs.length }} catalogue{{ v.catalogs.length === 1 ? "" : "s" }}
               </button>
@@ -287,13 +289,13 @@ const viewCatalog = async (i: number) => {
           </div>
           <button class="btn btn-ghost btn-sm" :aria-label="`View ${c.name}`" @click="viewCatalog(i)"><UiIcon name="eye" :size="14" /></button>
           <button class="btn btn-ghost btn-sm" title="Download" :aria-label="`Download ${c.name}`" @click="downloadCatalog(i)"><UiIcon name="download" :size="14" /></button>
-          <button v-if="!viewOnly" class="btn btn-danger btn-sm" :aria-label="`Remove ${c.name}`" @click="deleteCatalog(i)"><UiIcon name="trash" :size="14" /></button>
+          <button v-if="catEdit" class="btn btn-danger btn-sm" :aria-label="`Remove ${c.name}`" @click="deleteCatalog(i)"><UiIcon name="trash" :size="14" /></button>
         </div>
         <div v-if="!(catalogVendor?.catalogs?.length)" style="text-align: center; padding: 18px; color: #64748b; font-size: 12px">
           No catalogues uploaded yet
         </div>
       </div>
-      <UiUploadBox v-if="!viewOnly" label="Upload PDF catalogues" multiple accept="application/pdf" @files="uploadCatalogs" />
+      <UiUploadBox v-if="catEdit" label="Upload PDF catalogues" multiple accept="application/pdf" @files="uploadCatalogs" />
       <div v-if="catalogUploading" style="text-align: center; font-size: 11px; color: #3b82f6; margin-top: 8px; font-weight: 600">Uploading…</div>
     </UiAppModal>
 

@@ -109,6 +109,21 @@ def can_edit_importflow(user: models.User) -> bool:
     return importflow_role(user) in ("admin", "user")
 
 
+def can_manage_catalogues(user: models.User) -> bool:
+    """Upload/remove vendor catalogues: platform admins, Catalogues managers, and
+    ImportFlow editors (catalogues are part of the vendor records they keep)."""
+    if user.platform_role == "admin":
+        return True
+    cat = (user.apps or {}).get("catalogues") or {}
+    return (bool(cat.get("access")) and cat.get("role") == "manager") or can_edit_importflow(user)
+
+
+def require_catalogue_manager(user: models.User = Depends(get_current_user)) -> models.User:
+    if not can_manage_catalogues(user):
+        raise HTTPException(status_code=403, detail="You can view catalogues but not change them")
+    return user
+
+
 def require_importflow_editor(user: models.User = Depends(get_current_user)) -> models.User:
     """Write access to ImportFlow data (projects, shipments, vendors, shippers)."""
     if not can_edit_importflow(user):

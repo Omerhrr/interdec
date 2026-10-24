@@ -794,3 +794,25 @@ def test_rate_card_labels(admin, sales):
         assert put({"fields": {"x": "y" * 61}}).status_code == 400
     finally:
         put({"sections": {}, "fields": {}})
+
+
+def test_catalogue_manager_role(admin):
+    mk = lambda email, role: client.post("/api/users", headers=admin, json={  # noqa: E731
+        "name": email, "email": email, "password": "secret1",
+        "apps": {"catalogues": {"access": True, "role": role}}}).json()
+    mgr, vwr = mk("catmgr@x.io", "manager"), mk("catview@x.io", "viewer")
+    assert mgr["apps"]["catalogues"]["role"] == "manager"
+    hm, hv = _login("catmgr@x.io", "secret1"), _login("catview@x.io", "secret1")
+    up = lambda h: client.post("/api/vendors/vn1/catalogs", headers=h, json=[_file("brochure.pdf")])  # noqa: E731
+    assert up(hv).status_code == 403
+    r = up(hm)
+    assert r.status_code == 200, r.text
+    n = len(client.get("/api/vendors/vn1/catalogs", headers=hv).json())
+    assert client.delete(f"/api/vendors/vn1/catalogs/{n - 1}", headers=hv).status_code == 403
+    assert client.delete(f"/api/vendors/vn1/catalogs/{n - 1}", headers=hm).status_code == 200
+    assert client.post("/api/vendors", headers=hm, json={"name": "X"}).status_code == 403    # vendors themselves stay ImportFlow's
+    bad = client.post("/api/users", headers=admin, json={"name": "B", "email": "b2@x.io", "password": "secret1",
+                                                         "apps": {"catalogues": {"access": True, "role": "owner"}}})
+    assert bad.status_code in (200, 400) and (bad.status_code == 400 or bad.json()["apps"]["catalogues"]["role"] != "owner")
+    for u in (mgr, vwr):
+        client.delete(f"/api/users/{u['id']}", headers=admin)

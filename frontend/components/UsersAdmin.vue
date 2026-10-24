@@ -22,7 +22,7 @@ const blank = () => ({
   apps: {
     facade: { access: false, role: "sales" },
     importflow: { access: false, role: "viewer" },
-    catalogues: { access: false },
+    catalogues: { access: false, role: "viewer" },
     quotes: { access: false, role: "sales" },
   },
 });
@@ -44,7 +44,7 @@ const openEdit = (u: any) => {
     apps: JSON.parse(JSON.stringify({
       facade: { access: false, role: "sales" },
       importflow: { access: false, role: "viewer" },
-      catalogues: { access: false },
+      catalogues: { access: false, role: "viewer" },
       quotes: { access: false, role: "sales" },
       ...(u.apps || {}),
     })),
@@ -118,7 +118,7 @@ const toggleActive = async (u: any) => {
 const appBadge = (u: any, key: string) => {
   const a = u.apps?.[key];
   if (!a?.access) return { label: "None", color: "#475569" };
-  if (key === "catalogues") return { label: "View", color: "#047857" };
+  if (key === "catalogues") return u.platformRole === "admin" || a.role === "manager" ? { label: "Manager", color: "#047857" } : { label: "Viewer", color: "#64748b" };
   if (key === "quotes" && !a?.role) return { label: "Sales", color: ROLE_COLORS.sales };
   const role = a.role || "viewer";
   return { label: role === "admin" ? "Admin" : role === "user" ? "User" : role === "sales" ? "Sales" : "Viewer", color: ROLE_COLORS[role] || "#64748b" };
@@ -149,7 +149,7 @@ const appBadge = (u: any, key: string) => {
         <table class="um-table">
           <thead>
             <tr>
-              <th>User</th><th>Platform Role</th><th>Quotations</th><th>Facade</th><th>ImportFlow</th><th>Catalogues</th><th><span class="sr-only">Actions</span></th>
+              <th>User</th><th>Platform Role</th><th>Quotations</th><th>ImportFlow</th><th>Catalogues</th><th><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -174,7 +174,6 @@ const appBadge = (u: any, key: string) => {
                 </span>
               </td>
               <td><span class="chip" :style="{ background: appBadge(u, 'quotes').color + '15', color: appBadge(u, 'quotes').color }">{{ appBadge(u, 'quotes').label }}</span></td>
-              <td><span class="chip" :style="{ background: appBadge(u, 'facade').color + '15', color: appBadge(u, 'facade').color }">{{ appBadge(u, 'facade').label }}</span></td>
               <td><span class="chip" :style="{ background: appBadge(u, 'importflow').color + '15', color: appBadge(u, 'importflow').color }">{{ appBadge(u, 'importflow').label }}</span></td>
               <td><span class="chip" :style="{ background: appBadge(u, 'catalogues').color + '15', color: appBadge(u, 'catalogues').color }">{{ appBadge(u, 'catalogues').label }}</span></td>
               <td style="white-space: nowrap; text-align: right">
@@ -246,17 +245,6 @@ const appBadge = (u: any, key: string) => {
             </div>
             <div class="app-row">
               <label class="switch-label">
-                <input type="checkbox" :checked="form.apps.facade?.access" @change="setApp('facade', { access: ($event.target as HTMLInputElement).checked })" />
-                <UiIcon name="archive" :size="15" /> Legacy Facade archive
-              </label>
-              <select v-if="form.apps.facade?.access" class="inp" aria-label="Legacy archive role" style="width: 130px; padding: 5px 8px; font-size: 11px"
-                :value="form.apps.facade?.role || 'sales'" @change="setApp('facade', { role: ($event.target as HTMLSelectElement).value })">
-                <option value="admin">Admin</option>
-                <option value="sales">Sales</option>
-              </select>
-            </div>
-            <div class="app-row">
-              <label class="switch-label">
                 <input type="checkbox" :checked="form.apps.importflow?.access" @change="setApp('importflow', { access: ($event.target as HTMLInputElement).checked })" />
                 <UiIcon name="ship" :size="15" /> ImportFlow
               </label>
@@ -272,7 +260,12 @@ const appBadge = (u: any, key: string) => {
                 <input type="checkbox" :checked="form.apps.catalogues?.access" @change="setApp('catalogues', { access: ($event.target as HTMLInputElement).checked })" />
                 <UiIcon name="folder" :size="15" /> Catalogues
               </label>
-              <span v-if="form.apps.catalogues?.access" style="font-size: 10.5px; color: #10b981; font-weight: 600">View-only (platform admins can manage)</span>
+              <span v-if="form.apps.catalogues?.access && form.platformRole === 'admin'" style="font-size: 11px; color: #047857; font-weight: 700">Manager (platform admin)</span>
+              <select v-else-if="form.apps.catalogues?.access" class="inp" aria-label="Catalogues role" style="width: 130px; padding: 5px 8px; font-size: 11px"
+                :value="form.apps.catalogues?.role || 'viewer'" @change="setApp('catalogues', { role: ($event.target as HTMLSelectElement).value })">
+                <option value="manager">Manager</option>
+                <option value="viewer">Viewer</option>
+              </select>
             </div>
           </div>
         </div>

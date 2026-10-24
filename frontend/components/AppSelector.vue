@@ -20,7 +20,8 @@ const hasQuotes = computed(() => props.user?.platformRole === "admin" || has("qu
 const isAdmin = computed(() => props.user?.platformRole === "admin");
 // Quotes moved to the native app: the legacy Facade is an admin-only archive now,
 // so sales staff never have to choose between two quote tools.
-const showFacade = computed(() => isAdmin.value && has("facade"));
+const canManageCat = computed(() => isAdmin.value || props.user?.apps?.catalogues?.role === "manager"
+  || ["admin", "user"].includes(props.user?.apps?.importflow?.access ? props.user?.apps?.importflow?.role : ""));
 // Only call out access when it is limited; "Access: Admin" on every card is noise
 const limited = (role: string) => ["viewer", "sales", "user"].includes(role) && !isAdmin.value;
 </script>
@@ -77,18 +78,6 @@ const limited = (role: string) => ["viewer", "sales", "user"].includes(role) && 
           <div v-if="limited(quotesRole)" class="app-access" :style="{ color: roleColors[quotesRole] }">{{ roleLabels[quotesRole] }} access</div>
         </button>
 
-        <button v-if="showFacade" class="app-card legacy" @click="emit('open', 'facade')">
-          <div class="app-ic" style="background: linear-gradient(135deg, #f59e0b, #ea580c)">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8">
-              <rect x="3" y="4" width="20" height="18" rx="2"/><line x1="3" y1="10" x2="23" y2="10"/>
-              <line x1="10" y1="4" x2="10" y2="22"/><line x1="16.5" y1="4" x2="16.5" y2="22"/>
-            </svg>
-          </div>
-          <div class="app-name">Legacy archive</div>
-          <div class="app-desc">The old Facade Pricing app, kept for reference. Create new quotes in Quotations.</div>
-          <div class="app-access" style="color: #64748b">Admins only</div>
-        </button>
-
         <button v-if="has('importflow')" class="app-card" @click="emit('open', 'importflow')">
           <div class="app-ic" style="background: linear-gradient(135deg, #3b82f6, #8b5cf6)">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8">
@@ -109,7 +98,7 @@ const limited = (role: string) => ["viewer", "sales", "user"].includes(role) && 
           </div>
           <div class="app-name">Catalogues</div>
           <div class="app-desc">Browse &amp; download vendor product catalogues</div>
-          <div v-if="!isAdmin" class="app-access" style="color: #059669">View only</div>
+          <div v-if="!canManageCat" class="app-access" style="color: #059669">View only</div>
         </button>
       </div>
 

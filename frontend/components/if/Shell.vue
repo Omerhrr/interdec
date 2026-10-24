@@ -9,19 +9,21 @@ const roleLabels: Record<string, string> = { admin: "Admin", user: "User", viewe
 const role = computed(() => {
   if (props.quotesMode) return props.user?.apps?.quotes?.role || props.user?.apps?.facade?.role || "sales";
   if (props.cataloguesMode)
-    return props.user?.platformRole === "admin" ? "admin" : "viewer";
+    return canManageCat.value ? "admin" : "viewer";
   if (props.user?.platformRole === "admin") return "admin";
   const flow = props.user?.apps?.importflow;
   return flow?.access ? flow.role || "viewer" : "viewer";
 });
 const isPlatformAdmin = computed(() => props.user?.platformRole === "admin");
+const canManageCat = computed(() => isPlatformAdmin.value || props.user?.apps?.catalogues?.role === "manager"
+  || (props.user?.apps?.importflow?.access && ["admin", "user"].includes(props.user?.apps?.importflow?.role)));
 const isAdmin = computed(() => role.value === "admin" && !props.cataloguesMode);
 const isViewer = computed(() => role.value === "viewer" && !props.quotesMode);
 
 const appTitle = computed(() => (props.quotesMode ? "Quotations" : props.cataloguesMode ? "Catalogues" : "ImportFlow"));
 const appSub = computed(() =>
   props.quotesMode ? "Pricing Engine"
-  : props.cataloguesMode ? (isPlatformAdmin.value ? "Admin Access" : "View-Only")
+  : props.cataloguesMode ? (canManageCat.value ? "Manage" : "View-Only")
   : "Cycle Manager"
 );
 const appGradient = computed(() =>

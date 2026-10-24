@@ -140,6 +140,12 @@ const runFacadeMigration = async (payload: any) => {
 onMounted(() => window.addEventListener("message", onFacadeMsg));
 onUnmounted(() => window.removeEventListener("message", onFacadeMsg));
 
+const { importflowRole } = useAuth();
+const canManageCatalogues = computed(() => {
+  const u: any = user.value;
+  return u?.platformRole === "admin" || (u?.apps?.catalogues?.access && u?.apps?.catalogues?.role === "manager")
+    || ["admin", "user"].includes(importflowRole.value);
+});
 const goPortal = () => router.push("/platform");
 const openApp = (app: string) => router.push(app === "admin" ? "/platform/users" : `/platform/${app}`);
 
@@ -249,7 +255,7 @@ provide("navigate", navigate);
       @portal="goPortal"
       @nav="navigate($event)"
     >
-      <IfVendors catalogues :readonly="user.platformRole !== 'admin'" />
+      <IfVendors catalogues :readonly="!['admin', 'user'].includes(importflowRole)" :catalog-manager="canManageCatalogues" />
     </IfShell>
 
     <UiConfirmHost />

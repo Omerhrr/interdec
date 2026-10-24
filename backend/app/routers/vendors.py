@@ -130,7 +130,7 @@ def list_catalogs(vendor_id: str, user: models.User = Depends(auth.get_current_u
 def upload_catalogs(
     vendor_id: str,
     body: list[CatalogFile],
-    user: models.User = Depends(auth.require_importflow_editor),
+    user: models.User = Depends(auth.require_catalogue_manager),
     db: Session = Depends(get_db),
 ):
     v = _get(db, vendor_id)
@@ -157,7 +157,7 @@ def upload_catalogs(
 def delete_catalog(
     vendor_id: str,
     index: int,
-    user: models.User = Depends(auth.require_importflow_editor),
+    user: models.User = Depends(auth.require_catalogue_manager),
     db: Session = Depends(get_db),
 ):
     v = _get(db, vendor_id)

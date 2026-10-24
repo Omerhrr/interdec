@@ -18,13 +18,14 @@ def list_users(user: models.User = Depends(auth.require_admin), db: Session = De
 DEFAULT_APPS = {
     "facade": {"access": False, "role": "sales"},
     "importflow": {"access": False, "role": "viewer"},
-    "catalogues": {"access": False},
+    "catalogues": {"access": False, "role": "viewer"},
     "quotes": {"access": False, "role": "sales"},
 }
 VALID_ROLES = {
     "facade": {"admin", "sales"},
     "quotes": {"admin", "sales"},
     "importflow": {"admin", "user", "viewer"},
+    "catalogues": {"manager", "viewer"},
 }
 
 
