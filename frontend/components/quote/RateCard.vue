@@ -27,6 +27,36 @@ const prods = ref<any[]>([]);
 const subs = ref<Record<string, any[]>>({});
 const sf = ref<Record<string, number>>({});
 const kits = ref<Record<string, { id: string; q: number }[]>>({});
+// custom names for sections and fixed fields ({sections: {key: name}, fields: {key: name}})
+const labels = ref<{ sections: Record<string, string>; fields: Record<string, string> }>({ sections: {}, fields: {} });
+const SECTION_NAMES: Record<string, string> = {
+  rates: "Materials and labour", settings: "Markup, VAT and terms", glass: "Glass prices", colours: "Glass colours",
+  acp: "ACP cladding panels", extras: "Extra charges", types: "Products and types", hw: "Hardware", mosq: "Mosquito nets",
+};
+const SETTING_NAMES: Record<string, string> = {
+  defaultMarkup: "Default markup", minMarkup: "Minimum markup", vatRate: "VAT", validity: "Quote validity",
+  paymentTerms: "Payment terms", tcs: "Terms and conditions",
+};
+const secName = (k: string) => labels.value.sections[k] || SECTION_NAMES[k];
+const fieldName = (k: string, dflt: string) => labels.value.fields[k] || dflt;
+const setSection = (k: string, v: string) => { if (v && v !== SECTION_NAMES[k]) labels.value.sections[k] = v; else delete labels.value.sections[k]; };
+const setField = (k: string, dflt: string, v: string) => { if (v && v !== dflt) labels.value.fields[k] = v; else delete labels.value.fields[k]; };
+// renaming a mosquito-net row renames the type itself (same record as in Products and types)
+const renameType = (stid: string, v: string) => {
+  for (const pid of Object.keys(subs.value)) {
+    const t = (subs.value[pid] || []).find((x: any) => x.id === stid);
+    if (t) {
+      if (!v) return notify("A type needs a name", "error");
+      if ((subs.value[pid] || []).some((x: any) => x.id !== stid && x.label.toLowerCase() === v.toLowerCase())) return notify(`${v} already exists`, "error");
+      t.label = v;
+    }
+  }
+};
+const renameProduct = (pid: string, v: string) => {
+  if (!v) return notify("A product needs a name", "error");
+  const p = prods.value.find((x: any) => x.id === pid);
+  if (p) p.label = v;
+};
 const fx = ref<Record<string, number>>({ NGN: 1 }); // naira per 1 unit
 const saving = ref(false);
 const loaded = ref(false);
@@ -36,7 +66,7 @@ const original = ref("");
 
 const clone = (v: any) => JSON.parse(JSON.stringify(v ?? null));
 const state = () => ({ r: rates.value, s: settings.value, g: gc.value, m: mosqRates.value, a: acp.value, h: hw.value, k: cur.value,
-  p: prods.value, t: subs.value, f: sf.value, w: kits.value });
+  p: prods.value, t: subs.value, f: sf.value, w: kits.value, l: labels.value });
 const snapshot = () => JSON.stringify(state());
 const load = async () => {
   try {
@@ -63,6 +93,7 @@ const load = async () => {
   subs.value = clone(v.subs || {});
   sf.value = clone(v.sf || {});
   kits.value = clone(v.hwKits || {});
+  labels.value = { sections: { ...(v.rateCardLabels?.sections || {}) }, fields: { ...(v.rateCardLabels?.fields || {}) } };
   original.value = snapshot();
   tried.value = false;
   adding.value = null;
@@ -90,7 +121,7 @@ const countUnder = (...prefixes: string[]) => {
   return rows.size;
 };
 const counts = computed(() => ({
-  rates: countUnder("r.brandRates", ...RATE_FIELDS.map((f) => `r.${f.k}`)),
+  rates: countUnder("r.brandRates", ...RATE_DEFAULTS.map((f) => `r.${f.k}`)),
   settings: countUnder(...["defaultMarkup", "minMarkup", "vatRate", "validity", "paymentTerms", "tcs"].map((k) => `s.${k}`)),
   glass: countUnder("g.basePrices", "g.types", "g.thicknesses"),
   colours: countUnder("g.colours"),
@@ -99,21 +130,24 @@ const counts = computed(() => ({
   extras: countUnder("r.extras"),
   mosq: countUnder("m"),
   types: countUnder("p", "t", "f", "w"),
+  labels: countUnder("l.sections", "l.fields"),
   cur: diff.value.filter((k) => k.startsWith("k.")).length,
 }));
 const unsaved = computed(() => Object.values(counts.value).reduce((a, b) => a + b, 0));
 
-const RATE_FIELDS = [
+const RATE_DEFAULTS = [
   { k: "gasketRate", label: "Gasket", unit: "/m" },
   { k: "fabRate", label: "Fabrication", unit: "/m²" },
   { k: "installRate", label: "Installation", unit: "/m²" },
   { k: "subframeRate", label: "Sub-frame", unit: "/m" },
   { k: "sealantRate", label: "Sealant", unit: "/m" },
 ];
+const RATE_FIELDS_C = computed(() => RATE_DEFAULTS.map((f) => ({ ...f, dflt: f.label, label: fieldName(`rate.${f.k}`, f.label) })));
 // one profile rate per brand used by any product, plus "Other" for unbranded systems
 const BRANDS_LIST = computed(() => {
   const brands = [...new Set(prods.value.map((p: any) => (p.brand || "").trim()).filter(Boolean))];
-  return [...brands.map((b) => ({ k: b, label: `${b} profile` })), { k: "DEFAULT", label: "Other profiles" }];
+  return [...brands.map((b) => ({ k: b, dflt: `${b} profile` })), { k: "DEFAULT", dflt: "Other profiles" }]
+    .map((b) => ({ ...b, label: fieldName(`brand.${b.k}`, b.dflt) }));
 });
 const BASES = [
   { k: "m2", label: "per m²", unit: "/m²" },
@@ -143,17 +177,17 @@ const glassGroups = computed(() =>
     .filter((g: any) => !q.value || hit(g.label) || g.rows.some((r: any) => hit(`${g.label} ${r.label}`)))
 );
 const mosqGroups = computed(() => {
-  const groups: { label: string; rows: { id: string; label: string }[] }[] = [];
+  const groups: { pid: string; label: string; rows: { id: string; label: string }[] }[] = [];
   for (const p of prods.value) {
     const rows = (subs.value[p.id] || [])
       .filter((s: any) => s.id in mosqRates.value)
       .map((s: any) => ({ id: s.id, label: s.label }))
       .filter((r: any) => hit(`${p.label} ${r.label}`));
-    if (rows.length) groups.push({ label: p.label.replace(" Aluminium", ""), rows });
+    if (rows.length) groups.push({ pid: p.id, label: p.label, rows });
   }
   return groups;
 });
-const showRates = computed(() => !q.value || [...BRANDS_LIST.value, ...RATE_FIELDS].some((f) => hit(f.label)));
+const showRates = computed(() => !q.value || [...BRANDS_LIST.value, ...RATE_FIELDS_C.value].some((f) => hit(f.label)));
 const showSettings = computed(() => !q.value || hit("markup vat validity payment terms conditions"));
 const showColours = computed(() => !q.value || hit("colour color tint") || gc.value.colours.some((c: any) => hit(c.label)));
 const showAcp = computed(() => !q.value || hit("acp cladding panel") || acp.value.some((p) => hit(p.name)));
@@ -362,7 +396,7 @@ const errors = computed(() => {
   if (bad(s.vatRate)) e.vatRate = "Enter a number of 0 or more";
   if (!(Number(s.validity) >= 1)) e.validity = "At least 1 day";
   for (const b of BRANDS_LIST.value) if (bad(rates.value.brandRates?.[b.k])) e[`b_${b.k}`] = "Required";
-  for (const f of RATE_FIELDS) if (bad(rates.value[f.k])) e[f.k] = "Required";
+  for (const f of RATE_DEFAULTS) if (bad(rates.value[f.k])) e[f.k] = "Required";
   for (const [k, v] of Object.entries(gc.value.basePrices)) if (bad(v)) e[`g_${k}`] = "Required";
   gc.value.colours.forEach((c: any, i: number) => { if (bad(c.premium)) e[`c_${i}`] = "Required"; if (!String(c.label || "").trim()) e[`cn_${i}`] = "Name required"; });
   acp.value.forEach((p, i) => { if (bad(p.p)) e[`a_${i}`] = "Required"; if (!String(p.name || "").trim()) e[`an_${i}`] = "Name required"; });
@@ -399,6 +433,7 @@ const save = async () => {
     if (changedUnder("w")) await put("hwKits", kits.value);
     if (changedUnder("m")) await put("mosqRates", mosqRates.value);
     if (changedUnder("r")) await put("rates", rates.value);
+    if (changedUnder("l")) await put("rateCardLabels", labels.value);
     if (changedUnder("k")) await put("currencies", Object.fromEntries(Object.entries(cur.value).filter(([, c]) => c && c !== "NGN")));
     await load();
     notify("Rate card saved. New quotes use these rates now; saved quotes keep their prices.");
@@ -449,17 +484,17 @@ onUnmounted(() => { offGuard(); window.removeEventListener("beforeunload", onUnl
       <template v-else>
         <details v-show="showRates" class="sec" open>
           <summary>
-            <span class="sec-t">Materials and labour</span>
+            <span class="sec-t"><QuoteEditLabel :text="secName('rates')" what="this section" @save="setSection('rates', $event)" /></span>
             <span v-if="counts.rates" class="badge">{{ counts.rates }} changed</span>
           </summary>
           <div class="grid3">
             <label v-for="b in BRANDS_LIST" v-show="hit(b.label)" :key="b.k" class="f" :class="{ ch: changed.brand(b.k) }">
-              <span>{{ b.label }}</span>
+              <span><QuoteEditLabel :text="b.label" @save="setField(`brand.${b.k}`, b.dflt, $event)" /></span>
               <QuotePriceInput v-model="rates.brandRates[b.k]" :currency="curOf(`rates.brandRates.${b.k}`)" :fx="fx" suffix="/kg" :invalid="!!err(`b_${b.k}`)" @update:currency="setCur(`rates.brandRates.${b.k}`, $event)" />
               <span v-if="err(`b_${b.k}`)" class="fe">{{ err(`b_${b.k}`) }}</span>
             </label>
-            <label v-for="f in RATE_FIELDS" v-show="hit(f.label)" :key="f.k" class="f" :class="{ ch: changed.rate(f.k) }">
-              <span>{{ f.label }}</span>
+            <label v-for="f in RATE_FIELDS_C" v-show="hit(f.label)" :key="f.k" class="f" :class="{ ch: changed.rate(f.k) }">
+              <span><QuoteEditLabel :text="f.label" @save="setField(`rate.${f.k}`, f.dflt, $event)" /></span>
               <QuotePriceInput v-model="rates[f.k]" :currency="curOf(`rates.${f.k}`)" :fx="fx" :suffix="f.unit" :invalid="!!err(f.k)" @update:currency="setCur(`rates.${f.k}`, $event)" />
               <span v-if="err(f.k)" class="fe">{{ err(f.k) }}</span>
             </label>
@@ -468,39 +503,39 @@ onUnmounted(() => { offGuard(); window.removeEventListener("beforeunload", onUnl
 
         <details v-show="showSettings" class="sec" open>
           <summary>
-            <span class="sec-t">Markup, VAT and terms</span>
+            <span class="sec-t"><QuoteEditLabel :text="secName('settings')" what="this section" @save="setSection('settings', $event)" /></span>
             <span v-if="counts.settings" class="badge">{{ counts.settings }} changed</span>
           </summary>
           <div class="grid4">
             <label class="f" :class="{ ch: changed.setting('defaultMarkup') }">
-              <span>Default markup</span>
+              <span><QuoteEditLabel :text="fieldName('setting.defaultMarkup', SETTING_NAMES.defaultMarkup)" @save="setField('setting.defaultMarkup', SETTING_NAMES.defaultMarkup, $event)" /></span>
               <UiNumberInput v-model="settings.defaultMarkup" suffix="%" :invalid="!!err('defaultMarkup')" />
               <span v-if="err('defaultMarkup')" class="fe">{{ err("defaultMarkup") }}</span>
             </label>
             <label class="f" :class="{ ch: changed.setting('minMarkup') }">
-              <span>Minimum markup</span>
+              <span><QuoteEditLabel :text="fieldName('setting.minMarkup', SETTING_NAMES.minMarkup)" @save="setField('setting.minMarkup', SETTING_NAMES.minMarkup, $event)" /></span>
               <UiNumberInput v-model="settings.minMarkup" suffix="%" :invalid="!!err('minMarkup')" />
               <span v-if="err('minMarkup')" class="fe">{{ err("minMarkup") }}</span>
               <span v-else class="hint">Quotes can't go below this</span>
             </label>
             <label class="f" :class="{ ch: changed.setting('vatRate') }">
-              <span>VAT</span>
+              <span><QuoteEditLabel :text="fieldName('setting.vatRate', SETTING_NAMES.vatRate)" @save="setField('setting.vatRate', SETTING_NAMES.vatRate, $event)" /></span>
               <UiNumberInput v-model="settings.vatRate" suffix="%" :decimals="2" :invalid="!!err('vatRate')" />
               <span v-if="err('vatRate')" class="fe">{{ err("vatRate") }}</span>
             </label>
             <label class="f" :class="{ ch: changed.setting('validity') }">
-              <span>Quote validity</span>
+              <span><QuoteEditLabel :text="fieldName('setting.validity', SETTING_NAMES.validity)" @save="setField('setting.validity', SETTING_NAMES.validity, $event)" /></span>
               <UiNumberInput v-model="settings.validity" suffix="days" :decimals="0" :invalid="!!err('validity')" />
               <span v-if="err('validity')" class="fe">{{ err("validity") }}</span>
             </label>
           </div>
           <div class="grid2" style="margin-top: 12px">
             <label class="f" :class="{ ch: changed.setting('paymentTerms') }">
-              <span>Payment terms</span>
+              <span><QuoteEditLabel :text="fieldName('setting.paymentTerms', SETTING_NAMES.paymentTerms)" @save="setField('setting.paymentTerms', SETTING_NAMES.paymentTerms, $event)" /></span>
               <textarea v-model="settings.paymentTerms" class="inp" rows="3"></textarea>
             </label>
             <label class="f" :class="{ ch: changed.setting('tcs') }">
-              <span>Terms and conditions <span class="hint">(printed on quotes, one per line)</span></span>
+              <span><QuoteEditLabel :text="fieldName('setting.tcs', SETTING_NAMES.tcs)" @save="setField('setting.tcs', SETTING_NAMES.tcs, $event)" /> <span class="hint">(printed on quotes, one per line)</span></span>
               <textarea v-model="settings.tcs" class="inp" rows="5"></textarea>
             </label>
           </div>
@@ -508,7 +543,7 @@ onUnmounted(() => { offGuard(); window.removeEventListener("beforeunload", onUnl
 
         <details v-show="glassGroups.length || !q" class="sec" :open="!!q || undefined">
           <summary>
-            <span class="sec-t">Glass prices</span>
+            <span class="sec-t"><QuoteEditLabel :text="secName('glass')" what="this section" @save="setSection('glass', $event)" /></span>
             <span class="cnt">{{ Object.keys(gc.basePrices).length }} prices</span>
             <span v-if="counts.glass" class="badge">{{ counts.glass }} changed</span>
           </summary>
@@ -557,7 +592,7 @@ onUnmounted(() => { offGuard(); window.removeEventListener("beforeunload", onUnl
 
         <details v-show="showColours" class="sec" :open="!!q || undefined">
           <summary>
-            <span class="sec-t">Glass colours</span>
+            <span class="sec-t"><QuoteEditLabel :text="secName('colours')" what="this section" @save="setSection('colours', $event)" /></span>
             <span class="cnt">{{ gc.colours.length }} colours</span>
             <span v-if="counts.colours" class="badge">{{ counts.colours }} changed</span>
           </summary>
@@ -584,7 +619,7 @@ onUnmounted(() => { offGuard(); window.removeEventListener("beforeunload", onUnl
 
         <details v-show="showAcp" class="sec" :open="!!q || undefined">
           <summary>
-            <span class="sec-t">ACP cladding panels</span>
+            <span class="sec-t"><QuoteEditLabel :text="secName('acp')" what="this section" @save="setSection('acp', $event)" /></span>
             <span class="cnt">{{ acp.length }} panels</span>
             <span v-if="counts.acp" class="badge">{{ counts.acp }} changed</span>
           </summary>
@@ -610,7 +645,7 @@ onUnmounted(() => { offGuard(); window.removeEventListener("beforeunload", onUnl
 
         <details v-show="showExtras" class="sec" :open="!!rates.extras?.length || !!q || undefined">
           <summary>
-            <span class="sec-t">Extra charges</span>
+            <span class="sec-t"><QuoteEditLabel :text="secName('extras')" what="this section" @save="setSection('extras', $event)" /></span>
             <span class="cnt">{{ rates.extras.length }} added</span>
             <span v-if="counts.extras" class="badge">{{ counts.extras }} changed</span>
           </summary>
@@ -660,7 +695,7 @@ onUnmounted(() => { offGuard(); window.removeEventListener("beforeunload", onUnl
 
         <details v-show="showTypes" class="sec" :open="!!q || undefined">
           <summary>
-            <span class="sec-t">Products and types</span>
+            <span class="sec-t"><QuoteEditLabel :text="secName('types')" what="this section" @save="setSection('types', $event)" /></span>
             <span class="cnt">{{ prods.length }} products · {{ Object.values(subs).flat().length }} types</span>
             <span v-if="counts.types" class="badge">{{ counts.types }} changed</span>
           </summary>
@@ -756,7 +791,7 @@ onUnmounted(() => { offGuard(); window.removeEventListener("beforeunload", onUnl
 
         <details v-show="showHw" class="sec" :open="!!q || undefined">
           <summary>
-            <span class="sec-t">Hardware</span>
+            <span class="sec-t"><QuoteEditLabel :text="secName('hw')" what="this section" @save="setSection('hw', $event)" /></span>
             <span class="cnt">{{ hw.length }} items</span>
             <span v-if="counts.hw" class="badge">{{ counts.hw }} changed</span>
           </summary>
@@ -775,16 +810,16 @@ onUnmounted(() => { offGuard(); window.removeEventListener("beforeunload", onUnl
 
         <details v-show="mosqGroups.length" class="sec" :open="!!q || undefined">
           <summary>
-            <span class="sec-t">Mosquito nets</span>
+            <span class="sec-t"><QuoteEditLabel :text="secName('mosq')" what="this section" @save="setSection('mosq', $event)" /></span>
             <span class="cnt">{{ Object.keys(mosqRates).length }} prices</span>
             <span v-if="counts.mosq" class="badge">{{ counts.mosq }} changed</span>
           </summary>
           <p class="hint" style="margin: -2px 0 12px">Per m² of the item when "Mosquito net" is ticked. Sliding types are charged on half the area. ₦0 means free.</p>
-          <fieldset v-for="g in mosqGroups" :key="g.label" class="grp">
-            <legend>{{ g.label }}</legend>
+          <fieldset v-for="g in mosqGroups" :key="g.pid" class="grp">
+            <legend><QuoteEditLabel :text="g.label" what="this product" @save="renameProduct(g.pid, $event)" /></legend>
             <div class="grid4">
               <label v-for="r in g.rows" :key="r.id" class="f" :class="{ ch: changed.mosq(r.id) }">
-                <span>{{ r.label }}</span>
+                <span><QuoteEditLabel :text="r.label" what="this type" @save="renameType(r.id, $event)" /></span>
                 <QuotePriceInput v-model="mosqRates[r.id]" :currency="curOf(`mosqRates.${r.id}`)" :fx="fx" suffix="/m²" :invalid="!!err(`m_${r.id}`)" @update:currency="setCur(`mosqRates.${r.id}`, $event)" />
               </label>
             </div>

@@ -25,7 +25,7 @@ from ..schemas import (
 
 router = APIRouter(prefix="/api/quotes", tags=["quotes"])
 
-CATALOG_KEYS = {"pdfDesign", "currencies", "products", "subs", "hwItems", "hwKits", "sf", "mosqRates", "acpPanels", "gc", "rates", "settings"}
+CATALOG_KEYS = {"rateCardLabels", "pdfDesign", "currencies", "products", "subs", "hwItems", "hwKits", "sf", "mosqRates", "acpPanels", "gc", "rates", "settings"}
 STATUSES = {"draft", "sent", "won", "lost"}
 
 
@@ -166,6 +166,17 @@ def _validate_catalog_value(key: str, value: dict, db=None):
             raise HTTPException(400, f"{label} must be zero or more")
         return f
 
+    if key == "rateCardLabels":
+        if not isinstance(value, dict):
+            raise HTTPException(400, "rateCardLabels must be an object")
+        for part in ("sections", "fields"):
+            d = value.get(part) or {}
+            if not isinstance(d, dict) or len(d) > 200:
+                raise HTTPException(400, f"rateCardLabels.{part} must be an object")
+            for k, v in d.items():
+                if not isinstance(v, str) or not v.strip() or len(v) > 60:
+                    raise HTTPException(400, "Names must be 1–60 characters")
+        return
     if key in ("products", "subs"):
         return _validate_types(key, value, db)
     if key == "hwKits":

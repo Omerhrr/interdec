@@ -781,3 +781,16 @@ def test_import_vendors_projects_shipments_and_prices(admin, sales, viewer):
     bad = {"name": "x.pdf", "data": _b.b64encode(b"%PDF").decode()}
     assert client.post("/api/import/vendors/preview", headers=sales, json={"file": bad}).status_code == 400
     assert "Missing column" in client.post("/api/import/vendors/preview", headers=sales, json={"file": _xlsx([["Country"], ["NG"]])}).json()["detail"]
+
+
+def test_rate_card_labels(admin, sales):
+    put = lambda v, h=admin: client.put("/api/quotes/catalog/rateCardLabels", headers=h, json={"value": v})  # noqa: E731
+    try:
+        good = {"sections": {"rates": "Aluminium & labour"}, "fields": {"rate.fabRate": "Fabrication (workshop)", "setting.vatRate": "VAT (Nigeria)"}}
+        assert put(good).status_code == 200
+        assert client.get("/api/quotes/catalog", headers=sales).json()["values"]["rateCardLabels"]["fields"]["setting.vatRate"] == "VAT (Nigeria)"
+        assert put(good, sales).status_code == 403
+        assert put({"sections": {"rates": ""}}).status_code == 400
+        assert put({"fields": {"x": "y" * 61}}).status_code == 400
+    finally:
+        put({"sections": {}, "fields": {}})
